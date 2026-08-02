@@ -1,0 +1,27 @@
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <AssemblyName Condition="'$(AssemblyName)' == ''">$([System.String]::Copy('$(MSBuildProjectName)').Replace('AnyProtocol','AnyProtocol'))</AssemblyName>
+    <PackageId Condition="'$(PackageId)' == ''">$(AssemblyName)</PackageId>
+    <Title Condition="'$(Title)' == ''">$(PackageId)</Title>
+    <Description Condition="'$(Description)' == ''">AnyProtocol is a .NET messaging and communication library for building protocol-flexible distributed applications.</Description>
+    <PackageTags>AnyProtocol;dotnet;dotnet10;messaging;message-bus;event-bus;distributed-systems;rpc;grpc;rest;kafka;rabbitmq;zeromq;mcp;serialization;dependency-injection</PackageTags>
+    <Product>AnyProtocol</Product>
+    <Authors>Mehmet Can Kanpolat</Authors>
+    <PackageReleaseNotes>See the GitHub release notes for the changes included in this version.</PackageReleaseNotes>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageLicenseExpression>LGPL-3.0-or-later</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/MCKanpolat/AnyProtocol</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <copyright>Copyright © Mehmet Can Kanpolat</copyright>
+    <RepositoryUrl>https://github.com/MCKanpolat/AnyProtocol</RepositoryUrl>
+    <RepositoryBranch>develop</RepositoryBranch>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>AnyProtocol_icon.png</PackageIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="\" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE-GPL-3.0" Pack="true" PackagePath="\" />
+    <None Include="$(MSBuildThisFileDirectory)docs\assets\AnyProtocol_icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

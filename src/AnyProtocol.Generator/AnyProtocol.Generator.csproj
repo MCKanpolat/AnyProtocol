@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <IsRoslynComponent>true</IsRoslynComponent>
+        <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        <IncludeBuildOutput>false</IncludeBuildOutput>
+        <DevelopmentDependency>true</DevelopmentDependency>
+        <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="$(TargetPath)"
+              Pack="true"
+              PackagePath="analyzers/dotnet/cs" />
+        <None Include="$(MSBuildProjectDirectory)\..\AnyProtocol.Generator.CodeFixes\bin\$(Configuration)\netstandard2.0\AnyProtocol.Generator.CodeFixes.dll"
+              Pack="true"
+              PackagePath="analyzers/dotnet/cs" />
+    </ItemGroup>
+
+    <Target Name="BuildCodeFixesForPack" BeforeTargets="GenerateNuspec">
+        <MSBuild Projects="$(MSBuildProjectDirectory)\..\AnyProtocol.Generator.CodeFixes\AnyProtocol.Generator.CodeFixes.csproj"
+                 Targets="Build"
+                 Properties="Configuration=$(Configuration)" />
+    </Target>
+
+</Project>

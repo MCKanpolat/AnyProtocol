@@ -1,0 +1,20 @@
+- name: Overview
+  href: index.md
+- name: Getting started
+  href: GETTING_STARTED.md
+- name: Configuration
+  href: CONFIGURATION.md
+- name: Transport semantics
+  href: TRANSPORT_SEMANTICS.md
+- name: RabbitMQ
+  href: RABBITMQ.md
+- name: Performance
+  href: PERFORMANCE.md
+- name: Deployment
+  href: DEPLOYMENT.md
+- name: Observability
+  href: OBSERVABILITY.md
+- name: Security
+  href: SECURITY.md
+- name: API reference
+  href: api/

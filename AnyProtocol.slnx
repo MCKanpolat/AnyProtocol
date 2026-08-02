@@ -1,0 +1,87 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/AnyProtocol/AnyProtocol.csproj" />
+  </Folder>
+  <Folder Name="/src/Abstractions/">
+    <Project Path="src/AnyProtocol.Abstraction/AnyProtocol.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Authorization.Abstraction/AnyProtocol.Authorization.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.DependencyInjection.Abstraction/AnyProtocol.DependencyInjection.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Encoder.Abstraction/AnyProtocol.Encoder.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Logging.Abstraction/AnyProtocol.Logging.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.Abstraction/AnyProtocol.Protocol.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.SchemaRegistry.Abstraction/AnyProtocol.SchemaRegistry.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Serializer.Abstraction/AnyProtocol.Serializer.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Storage.Abstraction/AnyProtocol.Storage.Abstraction.csproj" />
+    <Project Path="src/AnyProtocol.Validation.Abstraction/AnyProtocol.Validation.Abstraction.csproj" />
+  </Folder>
+  <Folder Name="/src/Protocols/">
+    <Project Path="src/AnyProtocol.Mcp/AnyProtocol.Mcp.csproj" />
+    <Project Path="src/AnyProtocol.Mcp.AspNetCore/AnyProtocol.Mcp.AspNetCore.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.Grpc/AnyProtocol.Protocol.Grpc.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.Grpc.AspNetCore/AnyProtocol.Protocol.Grpc.AspNetCore.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.InMemory/AnyProtocol.Protocol.InMemory.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.Kafka/AnyProtocol.Protocol.Kafka.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.RabbitMq/AnyProtocol.Protocol.RabbitMq.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.Rest/AnyProtocol.Protocol.Rest.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.Rest.AspNetCore/AnyProtocol.Protocol.Rest.AspNetCore.csproj" />
+    <Project Path="src/AnyProtocol.Protocol.ZeroMq/AnyProtocol.Protocol.ZeroMq.csproj" />
+  </Folder>
+  <Folder Name="/src/Serializers/">
+    <Project Path="src/AnyProtocol.Serializer.MessagePack/AnyProtocol.Serializer.MessagePack.csproj" />
+    <Project Path="src/AnyProtocol.Serializer.TextJson/AnyProtocol.Serializer.TextJson.csproj" />
+  </Folder>
+  <Folder Name="/src/Storage/">
+    <Project Path="src/AnyProtocol.Storage.Redis/AnyProtocol.Storage.Redis.csproj" />
+  </Folder>
+  <Folder Name="/src/Generators/">
+    <Project Path="src/AnyProtocol.Generator/AnyProtocol.Generator.csproj" />
+    <Project Path="src/AnyProtocol.Generator.CodeFixes/AnyProtocol.Generator.CodeFixes.csproj" />
+  </Folder>
+  <Folder Name="/src/Extensions/">
+    <Project Path="src/AnyProtocol.DependencyInjection.Microsoft/AnyProtocol.DependencyInjection.Microsoft.csproj" />
+    <Project Path="src/AnyProtocol.Logging.Microsoft/AnyProtocol.Logging.Microsoft.csproj" />
+    <Project Path="src/AnyProtocol.MessageIdGenerator.Ulid/AnyProtocol.MessageIdGenerator.Ulid.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/AnyProtocol.AotSample/AnyProtocol.AotSample.csproj" />
+    <Project Path="samples/OrderSystem.McpHost/OrderSystem.McpHost.csproj" />
+  </Folder>
+  <Folder Name="/samples/OrderSystem.MultiProtocol/">
+    <Project Path="samples/OrderSystem.MultiProtocol/OrderSystem.Client/OrderSystem.Client.csproj" />
+    <Project Path="samples/OrderSystem.MultiProtocol/OrderSystem.Contracts/OrderSystem.Contracts.csproj" />
+    <Project Path="samples/OrderSystem.MultiProtocol/OrderSystem.Server/OrderSystem.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AnyProtocol.Conformance/AnyProtocol.Conformance.csproj" />
+    <Project Path="tests/AnyProtocol.Generator.Tests/AnyProtocol.Generator.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Mcp.Tests/AnyProtocol.Mcp.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Performance.Tests/AnyProtocol.Performance.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Protocol.Grpc.Tests/AnyProtocol.Protocol.Grpc.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Protocol.InMemory.Tests/AnyProtocol.Protocol.InMemory.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Protocol.Kafka.Tests/AnyProtocol.Protocol.Kafka.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Protocol.RabbitMq.Tests/AnyProtocol.Protocol.RabbitMq.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Protocol.Rest.Tests/AnyProtocol.Protocol.Rest.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Protocol.ZeroMq.Tests/AnyProtocol.Protocol.ZeroMq.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Tests/AnyProtocol.Tests.csproj" />
+    <Project Path="tests/OrderSystem.MultiProtocol.Tests/OrderSystem.MultiProtocol.Tests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/AnyProtocol.Benchmarks/AnyProtocol.Benchmarks.csproj" />
+    <Project Path="performance/AnyProtocol.LoadTests/AnyProtocol.LoadTests.csproj" />
+  </Folder>
+</Solution>

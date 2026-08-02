@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "startedAtUtc": "1970-01-01T00:00:00+00:00",
+  "runtime": {
+    "framework": "bootstrap",
+    "operatingSystem": "linux",
+    "architecture": "x64",
+    "processor": "pending reviewed baseline",
+    "processorCount": 0
+  },
+  "scenarios": []
+}

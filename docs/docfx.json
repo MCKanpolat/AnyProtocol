@@ -1,0 +1,65 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "..",
+          "files": [
+            "src/AnyProtocol/bin/Release/net10.0/AnyProtocol.dll",
+            "src/AnyProtocol.Abstraction/bin/Release/net10.0/AnyProtocol.Abstraction.dll",
+            "src/AnyProtocol.Authorization.Abstraction/bin/Release/net10.0/AnyProtocol.Authorization.Abstraction.dll",
+            "src/AnyProtocol.DependencyInjection.Abstraction/bin/Release/net10.0/AnyProtocol.DependencyInjection.Abstraction.dll",
+            "src/AnyProtocol.DependencyInjection.Microsoft/bin/Release/net10.0/AnyProtocol.DependencyInjection.Microsoft.dll",
+            "src/AnyProtocol.Encoder.Abstraction/bin/Release/net10.0/AnyProtocol.Encoder.Abstraction.dll",
+            "src/AnyProtocol.Logging.Abstraction/bin/Release/net10.0/AnyProtocol.Logging.Abstraction.dll",
+            "src/AnyProtocol.Logging.Microsoft/bin/Release/net10.0/AnyProtocol.Logging.Microsoft.dll",
+            "src/AnyProtocol.Mcp/bin/Release/net10.0/AnyProtocol.Mcp.dll",
+            "src/AnyProtocol.Mcp.AspNetCore/bin/Release/net10.0/AnyProtocol.Mcp.AspNetCore.dll",
+            "src/AnyProtocol.MessageIdGenerator.Ulid/bin/Release/net10.0/AnyProtocol.MessageIdGenerator.Ulid.dll",
+            "src/AnyProtocol.Protocol.Abstraction/bin/Release/net10.0/AnyProtocol.Protocol.Abstraction.dll",
+            "src/AnyProtocol.Protocol.Grpc/bin/Release/net10.0/AnyProtocol.Protocol.Grpc.dll",
+            "src/AnyProtocol.Protocol.Grpc.AspNetCore/bin/Release/net10.0/AnyProtocol.Protocol.Grpc.AspNetCore.dll",
+            "src/AnyProtocol.Protocol.InMemory/bin/Release/net10.0/AnyProtocol.Protocol.InMemory.dll",
+            "src/AnyProtocol.Protocol.Kafka/bin/Release/net10.0/AnyProtocol.Protocol.Kafka.dll",
+            "src/AnyProtocol.Protocol.RabbitMq/bin/Release/net10.0/AnyProtocol.Protocol.RabbitMq.dll",
+            "src/AnyProtocol.Protocol.Rest/bin/Release/net10.0/AnyProtocol.Protocol.Rest.dll",
+            "src/AnyProtocol.Protocol.Rest.AspNetCore/bin/Release/net10.0/AnyProtocol.Protocol.Rest.AspNetCore.dll",
+            "src/AnyProtocol.Protocol.ZeroMq/bin/Release/net10.0/AnyProtocol.Protocol.ZeroMq.dll",
+            "src/AnyProtocol.SchemaRegistry.Abstraction/bin/Release/net10.0/AnyProtocol.SchemaRegistry.Abstraction.dll",
+            "src/AnyProtocol.Serializer.Abstraction/bin/Release/net10.0/AnyProtocol.Serializer.Abstraction.dll",
+            "src/AnyProtocol.Serializer.MessagePack/bin/Release/net10.0/AnyProtocol.Serializer.MessagePack.dll",
+            "src/AnyProtocol.Serializer.TextJson/bin/Release/net10.0/AnyProtocol.Serializer.TextJson.dll",
+            "src/AnyProtocol.Storage.Abstraction/bin/Release/net10.0/AnyProtocol.Storage.Abstraction.dll",
+            "src/AnyProtocol.Storage.Redis/bin/Release/net10.0/AnyProtocol.Storage.Redis.dll",
+            "src/AnyProtocol.Validation.Abstraction/bin/Release/net10.0/AnyProtocol.Validation.Abstraction.dll"
+          ]
+        }
+      ],
+      "dest": "api",
+      "disableDefaultFilter": false
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": ["index.md", "toc.yml", "*.md"],
+        "exclude": ["superpowers/**", "_site/**"]
+      },
+      { "files": ["api/**.yml", "api/toc.yml"] }
+    ],
+    "resource": ["assets/**"],
+    "dest": "_site",
+    "template": ["default"],
+    "globalMetadata": {
+      "_appName": "AnyProtocol",
+      "_appTitle": "AnyProtocol Documentation",
+      "_appLogoPath": "assets/AnyProtocol_icon.svg",
+      "_appFaviconPath": "assets/AnyProtocol_icon.svg",
+      "_enableSearch": true,
+      "_gitContribute": {
+        "repo": "https://github.com/MCKanpolat/AnyProtocol",
+        "branch": "develop"
+      }
+    }
+  }
+}

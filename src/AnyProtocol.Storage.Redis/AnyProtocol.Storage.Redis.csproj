@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>AnyProtocol.Storage.Redis</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="StackExchange.Redis" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AnyProtocol.DependencyInjection.Abstraction\AnyProtocol.DependencyInjection.Abstraction.csproj" />
+      <ProjectReference Include="..\AnyProtocol.Logging.Abstraction\AnyProtocol.Logging.Abstraction.csproj" />
+      <ProjectReference Include="..\AnyProtocol.Storage.Abstraction\AnyProtocol.Storage.Abstraction.csproj" />
+    </ItemGroup>
+
+</Project>

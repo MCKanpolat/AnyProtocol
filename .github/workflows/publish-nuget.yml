@@ -1,0 +1,115 @@
+name: Publish NuGet packages
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: nuget-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.300
+
+      - name: Restore
+        run: dotnet restore AnyProtocol.slnx
+
+      - name: Build
+        run: dotnet build AnyProtocol.slnx --configuration Release --no-restore
+
+      - name: Calculate semantic version
+        id: versioning
+        uses: MCKanpolat/auto-semver-action@v3
+        with:
+          releaseType: patch
+          incrementPerCommit: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Select release version
+        id: release-version
+        shell: bash
+        env:
+          ACTION_VERSION: ${{ steps.versioning.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git tag --list 'v[0-9]*' | grep -q .; then
+            version="$ACTION_VERSION"
+          else
+            version="1.0.0"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $version"
+
+      - name: Pack library projects
+        shell: bash
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/packages
+          while IFS= read -r -d '' project; do
+            dotnet pack "$project" \
+              --configuration Release \
+              --no-restore \
+              --output artifacts/packages \
+              -p:PackageVersion="$VERSION" \
+              -p:Version="$VERSION"
+          done < <(find src -type f -name '*.csproj' -print0 | sort -z)
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" artifacts/packages/*.nupkg \
+            --title "v$VERSION" \
+            --generate-notes
+
+      - name: Verify packages
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(artifacts/packages/*.nupkg)
+          if [ "${#packages[@]}" -eq 0 ]; then
+            echo "No NuGet packages were produced."
+            exit 1
+          fi
+
+      - name: NuGet login (OIDC trusted publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push packages to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(artifacts/packages/*.nupkg)
+          for package in "${packages[@]}"; do
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPublishable>true</IsPublishable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AnyProtocol.Mcp.AspNetCore\AnyProtocol.Mcp.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Protocol.Grpc.AspNetCore\AnyProtocol.Protocol.Grpc.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Protocol.InMemory\AnyProtocol.Protocol.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Protocol.Rest.AspNetCore\AnyProtocol.Protocol.Rest.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Serializer.TextJson\AnyProtocol.Serializer.TextJson.csproj" />
+  </ItemGroup>
+
+</Project>

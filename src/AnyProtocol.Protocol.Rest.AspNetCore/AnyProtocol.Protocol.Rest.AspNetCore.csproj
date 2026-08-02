@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>AnyProtocol.Protocol.Rest.AspNetCore</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AnyProtocol\AnyProtocol.csproj" />
+    <ProjectReference Include="..\AnyProtocol.DependencyInjection.Microsoft\AnyProtocol.DependencyInjection.Microsoft.csproj" />
+    <ProjectReference Include="..\AnyProtocol.Protocol.Abstraction\AnyProtocol.Protocol.Abstraction.csproj" />
+  </ItemGroup>
+</Project>

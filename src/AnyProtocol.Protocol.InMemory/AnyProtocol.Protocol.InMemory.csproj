@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>AnyProtocol.Protocol.InMemory</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AnyProtocol.Abstraction\AnyProtocol.Abstraction.csproj" />
+      <ProjectReference Include="..\AnyProtocol.Protocol.Abstraction\AnyProtocol.Protocol.Abstraction.csproj" />
+    </ItemGroup>
+
+</Project>

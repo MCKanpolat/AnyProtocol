@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>AnyProtocol.Abstraction</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AnyProtocol.DependencyInjection.Abstraction\AnyProtocol.DependencyInjection.Abstraction.csproj" />
+    </ItemGroup>
+
+</Project>

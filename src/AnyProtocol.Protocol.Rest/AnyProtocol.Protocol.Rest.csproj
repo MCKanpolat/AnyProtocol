@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>AnyProtocol.Protocol.Rest</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AnyProtocol\AnyProtocol.csproj" />
+    <ProjectReference Include="..\AnyProtocol.Abstraction\AnyProtocol.Abstraction.csproj" />
+    <ProjectReference Include="..\AnyProtocol.Protocol.Abstraction\AnyProtocol.Protocol.Abstraction.csproj" />
+    <ProjectReference Include="..\AnyProtocol.Serializer.Abstraction\AnyProtocol.Serializer.Abstraction.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+</Project>
