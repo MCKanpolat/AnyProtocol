@@ -171,6 +171,9 @@ public sealed class LoadScenarioRunner
             return;
         }
 
+        using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        operationTimeout.CancelAfter(timeout);
+        var operationCancellationToken = operationTimeout.Token;
         var id = Guid.NewGuid().ToString("N");
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!pending.TryAdd(id, completion))
@@ -183,8 +186,12 @@ public sealed class LoadScenarioRunner
             await transport.SendAsync(
                 channel,
                 new TransportEnvelope(new MessageHeaders { [HeaderNames.MessageId] = id }, payload),
-                cancellationToken);
-            await completion.Task.WaitAsync(timeout, cancellationToken);
+                operationCancellationToken);
+            await completion.Task.WaitAsync(operationCancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Load operation on '{channel}' did not complete within {timeout}.");
         }
         finally
         {

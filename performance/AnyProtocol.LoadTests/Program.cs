@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
@@ -13,9 +14,20 @@ public static class Program
             var runner = new LoadScenarioRunner();
             var configurations = options.Expand();
             var scenarios = new List<ScenarioResult>(configurations.Count);
-            foreach (var configuration in configurations)
+            for (var index = 0; index < configurations.Count; index++)
             {
-                scenarios.Add(await runner.RunAsync(configuration, TransportFactories.Create(configuration)));
+                var configuration = configurations[index];
+                Console.WriteLine(
+                    $"[{index + 1}/{configurations.Count}] Starting {configuration.Transport}/" +
+                    $"{configuration.Scenario}, payload={configuration.PayloadBytes}, " +
+                    $"concurrency={configuration.Concurrency}.");
+                var stopwatch = Stopwatch.StartNew();
+                var result = await runner.RunAsync(configuration, TransportFactories.Create(configuration));
+                stopwatch.Stop();
+                scenarios.Add(result);
+                Console.WriteLine(
+                    $"[{index + 1}/{configurations.Count}] Completed in {stopwatch.Elapsed}. " +
+                    $"errors={result.Errors}, timeouts={result.Timeouts}.");
             }
 
             var run = new PerformanceRunResult(

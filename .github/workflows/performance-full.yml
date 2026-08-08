@@ -2,6 +2,17 @@ name: Performance full
 
 on:
   workflow_dispatch:
+    inputs:
+      operations:
+        description: "Measured operations per scenario (manual runs default to 1000)."
+        required: false
+        default: "1000"
+        type: string
+      warmup:
+        description: "Warm-up operations per scenario (manual runs default to 100)."
+        required: false
+        default: "100"
+        type: string
   schedule:
     - cron: "17 3 * * 1"
 
@@ -12,6 +23,9 @@ jobs:
   full:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      PERFORMANCE_OPERATIONS: ${{ github.event_name == 'schedule' && '10000' || inputs.operations || '1000' }}
+      PERFORMANCE_WARMUP: ${{ github.event_name == 'schedule' && '1000' || inputs.warmup || '100' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -25,14 +39,19 @@ jobs:
         run: |
           timeout 120 sh -c 'until docker compose -f samples/docker-compose.yml exec -T rabbitmq rabbitmq-diagnostics -q ping; do sleep 2; done'
           timeout 120 sh -c 'until docker compose -f samples/docker-compose.yml exec -T kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1; do sleep 2; done'
+      - name: Dump broker diagnostics
+        if: failure()
+        run: |
+          docker compose -f samples/docker-compose.yml ps -a
+          docker compose -f samples/docker-compose.yml logs --no-color --timestamps rabbitmq
       - name: Run full matrix with confirmation gate
         run: >-
           dotnet run --project performance/AnyProtocol.LoadTests -c Release --no-build --
           --matrix full
           --rabbitmq-uri amqp://guest:guest@localhost:5672/
           --kafka-bootstrap localhost:9092
-          --operations 10000
-          --warmup 1000
+          --operations "$PERFORMANCE_OPERATIONS"
+          --warmup "$PERFORMANCE_WARMUP"
           --baseline performance/baselines/linux-x64.json
           --threshold 0.20
           --confirm-regressions
