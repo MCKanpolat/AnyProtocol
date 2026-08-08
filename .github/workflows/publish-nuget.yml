@@ -73,7 +73,11 @@ jobs:
               --output artifacts/packages \
               -p:PackageVersion="$VERSION" \
               -p:Version="$VERSION"
-          done < <(find src -type f -name '*.csproj' -print0 | sort -z)
+          done < <(
+            find src -type f -name '*.csproj' \
+              ! -path 'src/AnyProtocol.Generator.CodeFixes/*' \
+              -print0 | sort -z
+          )
 
       - name: Create GitHub release
         env:
