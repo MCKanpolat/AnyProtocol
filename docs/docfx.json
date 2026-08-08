@@ -49,12 +49,13 @@
     ],
     "resource": ["assets/**"],
     "dest": "_site",
-    "template": ["default"],
+    "template": ["default", "modern", "template"],
     "globalMetadata": {
       "_appName": "AnyProtocol",
       "_appTitle": "AnyProtocol Documentation",
-      "_appLogoPath": "assets/AnyProtocol_icon.svg",
+      "_appLogoPath": "assets/AnyProtocol_icon_transparent.png",
       "_appFaviconPath": "assets/AnyProtocol_icon.svg",
+      "_lang": "en",
       "_enableSearch": true,
       "_gitContribute": {
         "repo": "https://github.com/MCKanpolat/AnyProtocol",

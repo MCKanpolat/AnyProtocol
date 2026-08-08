@@ -1,0 +1,100 @@
+:root {
+  --ap-ink: #10243e;
+  --ap-muted: #5b6b80;
+  --ap-blue: #0a8fd9;
+  --ap-cyan: #21d4c2;
+  --ap-violet: #7468f0;
+  --ap-surface: #f7fbff;
+  --ap-border: rgba(16, 36, 62, 0.12);
+}
+
+[data-bs-theme="dark"] {
+  --ap-ink: #e6f1ff;
+  --ap-muted: #9db0c7;
+  --ap-blue: #43b9ff;
+  --ap-cyan: #5ee9d9;
+  --ap-violet: #a49cff;
+  --ap-surface: #0d1726;
+  --ap-border: rgba(211, 231, 255, 0.16);
+}
+
+body {
+  --bs-body-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bs-heading-color: var(--ap-ink);
+  --bs-link-color-rgb: 10, 143, 217;
+  --bs-link-hover-color-rgb: 116, 104, 240;
+  background: var(--ap-surface);
+  color: var(--ap-ink);
+}
+
+.navbar {
+  border-bottom: 1px solid var(--ap-border);
+  box-shadow: 0 8px 28px rgba(16, 36, 62, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+[data-bs-theme="dark"] .navbar {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.24);
+}
+
+.navbar-brand {
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+
+.navbar-brand img,
+.navbar-brand > img {
+  width: 2.15rem;
+  height: 2.15rem;
+  filter: drop-shadow(0 4px 12px rgba(10, 143, 217, 0.28));
+}
+
+.navbar-nav .nav-link {
+  font-size: 0.84rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+main article h1 {
+  letter-spacing: -0.045em;
+  font-weight: 800;
+}
+
+main article h2 {
+  margin-top: 2.8rem;
+  letter-spacing: -0.025em;
+}
+
+main article code {
+  color: var(--ap-violet);
+}
+
+main article blockquote,
+main article table {
+  border-color: var(--ap-border);
+}
+
+main article table thead th {
+  background: color-mix(in srgb, var(--ap-blue) 8%, transparent);
+}
+
+@media (max-width: 768px) {
+  .navbar-brand {
+    font-size: 1rem;
+  }
+
+  main article h1 {
+    font-size: clamp(2rem, 9vw, 3.2rem);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .navbar-brand img {
+    transition: transform 180ms ease, filter 180ms ease;
+  }
+
+  .navbar-brand:hover img {
+    transform: rotate(-5deg) scale(1.04);
+    filter: drop-shadow(0 5px 16px rgba(116, 104, 240, 0.42));
+  }
+}

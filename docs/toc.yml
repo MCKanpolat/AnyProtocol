@@ -1,13 +1,27 @@
 - name: Overview
   href: index.md
-- name: Getting started
+- name: Get started
   href: GETTING_STARTED.md
 - name: Configuration
   href: CONFIGURATION.md
-- name: Transport semantics
+- name: Protocols
+  items:
+  - name: InMemory
+    href: IN_MEMORY.md
+  - name: REST / HTTP
+    href: REST.md
+  - name: gRPC
+    href: GRPC.md
+  - name: MCP
+    href: MCP.md
+  - name: Kafka
+    href: KAFKA.md
+  - name: RabbitMQ
+    href: RABBITMQ.md
+  - name: ZeroMQ
+    href: ZEROMQ.md
+- name: Semantics
   href: TRANSPORT_SEMANTICS.md
-- name: RabbitMQ
-  href: RABBITMQ.md
 - name: Performance
   href: PERFORMANCE.md
 - name: Deployment
