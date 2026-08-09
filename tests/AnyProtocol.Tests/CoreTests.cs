@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Text;
 using AnyProtocol.Abstraction;
+using AnyProtocol.Encoder.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using Xunit;
 
@@ -46,6 +48,82 @@ public sealed class CoreTests
 
         Assert.Equal("message-1", decoded.Headers[HeaderNames.MessageId]);
         Assert.Equal(envelope.Body.ToArray(), decoded.Body.ToArray());
+    }
+
+    [Fact]
+    public void Binary_codec_preserves_the_v1_empty_envelope_fixture()
+    {
+        var codec = new BinaryEnvelopeCodec();
+
+        var frame = codec.Encode(new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty));
+
+        Assert.Equal(
+            Convert.FromHexString("434C4E4B010000000000000000"),
+            frame.ToArray());
+    }
+
+    [Fact]
+    public void Binary_codec_enforces_limits_and_rejects_malformed_frames()
+    {
+        var envelope = new TransportEnvelope(
+            new MessageHeaders { ["Ünicode"] = "значение" },
+            new byte[] { 1, 2, 3 });
+        var codec = new BinaryEnvelopeCodec(
+            new EnvelopeCodecLimits
+            {
+                MaxFrameSize = 128,
+                MaxBodySize = 3,
+                MaxHeaderCount = 2,
+                MaxHeaderBytes = 64
+            });
+        var frame = codec.Encode(envelope).ToArray();
+
+        Assert.Equal("значение", codec.Decode(frame).Headers["ünicode"]);
+        Assert.Throws<InvalidDataException>(() => codec.Decode(frame[..^1]));
+        var trailing = new byte[frame.Length + 1];
+        frame.CopyTo(trailing, 0);
+        Assert.Throws<InvalidDataException>(() => codec.Decode(trailing));
+
+        var invalidMagic = frame.ToArray();
+        invalidMagic[0] ^= 0xFF;
+        Assert.Throws<InvalidDataException>(() => codec.Decode(invalidMagic));
+
+        var invalidVersion = frame.ToArray();
+        invalidVersion[4] = 2;
+        Assert.Throws<InvalidDataException>(() => codec.Decode(invalidVersion));
+
+        var invalidBodyLength = frame.ToArray();
+        var bodyLengthOffset = 9 + 4 + Encoding.UTF8.GetByteCount("Ünicode") + 4 +
+                               Encoding.UTF8.GetByteCount("значение");
+        BinaryPrimitives.WriteInt32LittleEndian(invalidBodyLength.AsSpan(bodyLengthOffset, sizeof(int)), -1);
+        Assert.Throws<InvalidDataException>(() => codec.Decode(invalidBodyLength));
+
+        var invalidHeaderCount = frame.ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(invalidHeaderCount.AsSpan(5, sizeof(int)), 3);
+        Assert.Throws<InvalidDataException>(() => codec.Decode(invalidHeaderCount));
+    }
+
+    [Fact]
+    public void Binary_codec_rejects_duplicate_case_insensitive_headers()
+    {
+        var frame = new List<byte>();
+        frame.AddRange(Convert.FromHexString("434C4E4B0102000000"));
+        AddString(frame, "Header");
+        AddString(frame, "one");
+        AddString(frame, "header");
+        AddString(frame, "two");
+        frame.AddRange(new byte[4]);
+
+        Assert.Throws<InvalidDataException>(() => new BinaryEnvelopeCodec().Decode(frame.ToArray()));
+
+        static void AddString(List<byte> destination, string value)
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+            var length = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
+            destination.AddRange(length);
+            destination.AddRange(bytes);
+        }
     }
 
     [Fact]

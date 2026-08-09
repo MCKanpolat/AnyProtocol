@@ -2,16 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.Protobuf" />
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="MessagePack" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
@@ -25,16 +20,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Using Include="Xunit" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\AnyProtocol.Protocol.Grpc\AnyProtocol.Protocol.Grpc.csproj" />
-    <ProjectReference Include="..\..\src\AnyProtocol.Protocol.Grpc.AspNetCore\AnyProtocol.Protocol.Grpc.AspNetCore.csproj" />
-    <ProjectReference Include="..\..\src\AnyProtocol.Encoder.Compression\AnyProtocol.Encoder.Compression.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Abstraction\AnyProtocol.Abstraction.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Encoder.Abstraction\AnyProtocol.Encoder.Abstraction.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Encoder.MessagePack\AnyProtocol.Encoder.MessagePack.csproj" />
-    <ProjectReference Include="..\..\src\AnyProtocol.Encoder.Protobuf\AnyProtocol.Encoder.Protobuf.csproj" />
-    <ProjectReference Include="..\..\src\AnyProtocol.Serializer.TextJson\AnyProtocol.Serializer.TextJson.csproj" />
   </ItemGroup>
 
 </Project>

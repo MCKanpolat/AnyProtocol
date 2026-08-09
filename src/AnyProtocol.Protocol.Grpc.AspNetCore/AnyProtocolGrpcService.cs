@@ -1,5 +1,6 @@
 using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
+using AnyProtocol.Encoder.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using Grpc.Core;
 
@@ -16,7 +17,7 @@ public class AnyProtocolGrpcService
     private readonly ContractDescriptorFactory _descriptorFactory;
     private readonly TransportRegistry _registry;
     private readonly MessageDispatcher _dispatcher;
-    private readonly BinaryEnvelopeCodec _codec = new();
+    private readonly IEnvelopeCodec _codec;
 
     /// <summary>
     /// Initializes a new instance of the AnyProtocolGrpcService class.
@@ -30,11 +31,35 @@ public class AnyProtocolGrpcService
         ContractDescriptorFactory descriptorFactory,
         TransportRegistry registry,
         MessageDispatcher dispatcher)
+        : this(
+            configuration,
+            descriptorFactory,
+            registry,
+            dispatcher,
+            new BinaryEnvelopeCodec())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the AnyProtocolGrpcService class.
+    /// </summary>
+    /// <param name="configuration">The configuration.</param>
+    /// <param name="descriptorFactory">The descriptor factory.</param>
+    /// <param name="registry">The registry.</param>
+    /// <param name="dispatcher">The dispatcher.</param>
+    /// <param name="codec">The envelope codec.</param>
+    public AnyProtocolGrpcService(
+        LinkConfiguration configuration,
+        ContractDescriptorFactory descriptorFactory,
+        TransportRegistry registry,
+        MessageDispatcher dispatcher,
+        IEnvelopeCodec codec)
     {
         _configuration = configuration;
         _descriptorFactory = descriptorFactory;
         _registry = registry;
         _dispatcher = dispatcher;
+        _codec = codec ?? throw new ArgumentNullException(nameof(codec));
     }
 
     /// <summary>

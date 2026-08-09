@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package anyprotocol.encoder;
+
+option csharp_namespace = "AnyProtocol.Encoder.Protobuf.Generated";
+
+// Transport-level envelope. The body is serialized by the application serializer.
+message EnvelopeFrame {
+  uint32 version = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
+}

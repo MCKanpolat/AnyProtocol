@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Threading.Channels;
 using AnyProtocol.Abstraction;
+using AnyProtocol.Encoder.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using NetMQ;
 using NetMQ.Sockets;
@@ -13,7 +14,7 @@ namespace AnyProtocol.Protocol.ZeroMq;
 /// </summary>
 public sealed class ZeroMqMessagingProtocol : IMessagingProtocol, ITransportReadiness
 {
-    private readonly BinaryEnvelopeCodec _codec = new();
+    private readonly IEnvelopeCodec _codec;
     private readonly ZeroMqProtocolOptions _options;
     private readonly Channel<OutgoingMessage> _outbound;
     private readonly ConcurrentDictionary<string, SubscriptionSet> _subscriptions =
@@ -29,10 +30,22 @@ public sealed class ZeroMqMessagingProtocol : IMessagingProtocol, ITransportRead
     /// </summary>
     /// <param name="options">The options that control the operation.</param>
     public ZeroMqMessagingProtocol(ZeroMqProtocolOptions options)
+        : this(options, new BinaryEnvelopeCodec())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the ZeroMqMessagingProtocol class.
+    /// </summary>
+    /// <param name="options">The options that control the operation.</param>
+    /// <param name="codec">The envelope codec.</param>
+    public ZeroMqMessagingProtocol(ZeroMqProtocolOptions options, IEnvelopeCodec codec)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(codec);
         options.Validate();
         _options = options;
+        _codec = codec;
         _outbound = Channel.CreateBounded<OutgoingMessage>(
             new BoundedChannelOptions(options.HighWatermark)
             {
