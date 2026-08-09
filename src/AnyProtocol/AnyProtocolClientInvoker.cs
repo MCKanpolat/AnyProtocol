@@ -298,8 +298,22 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
 
         if (context.MessageType == MessageType.Event)
         {
-            await transport.SendAsync(context.Channel, envelope, context.CancellationToken)
-                .ConfigureAwait(false);
+            if (transport is IMethodAwareMessagingProtocol methodAwareTransport &&
+                context.Method is not null)
+            {
+                await methodAwareTransport.SendAsync(
+                        context.Channel,
+                        envelope,
+                        context.Method,
+                        context.CancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await transport.SendAsync(context.Channel, envelope, context.CancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -318,7 +332,8 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
                             retryContext.Channel,
                             envelope,
                             registration.Timeout,
-                            retryContext.CancellationToken)
+                            retryContext.CancellationToken,
+                            context.Method)
                         .ConfigureAwait(false);
                     ThrowIfFault(retryContext.Response);
                 })

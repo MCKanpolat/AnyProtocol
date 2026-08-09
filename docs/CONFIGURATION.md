@@ -73,7 +73,9 @@ These options are intended for process-local execution and deterministic fault/d
 
 ### REST
 
-`RestMessagingProtocol` accepts either `HttpClient` plus an `IMessageSerializer`, or `IHttpClientFactory` plus a serializer and `clientName`; both overloads accept `routePrefix`. The prefix defaults to `/anyprotocol`. `AddRestServer("rest")` has no additional options; `MapAnyProtocol("/anyprotocol")` supplies the server prefix.
+`RestMessagingProtocol` accepts either `HttpClient` plus an `IMessageSerializer`, or `IHttpClientFactory` plus a serializer and `clientName`; both forms accept `routePrefix` and an optional fallback HTTP method resolver. The prefix defaults to `/anyprotocol`, and methods without explicit REST or ASP.NET Core metadata default to `POST`.
+
+`AddRestServer("rest")` registers the server transport. `AddAnyProtocolRest(options => ...)` controls the ASP.NET Core endpoint surface: `MapOperationEndpoints` enables typed operation routes, `DocumentationContentType` controls request/response metadata, and the fallback route and HTTP method resolvers apply when a contract has no explicit metadata. `MapAnyProtocol("/anyprotocol")` supplies the server prefix. Operation endpoints are disabled by default; see [REST / HTTP protocol](REST.md) for examples and precedence rules.
 
 Channels cannot contain `{`, `}`, `?`, `#`, empty path segments, or whitespace-only segments.
 

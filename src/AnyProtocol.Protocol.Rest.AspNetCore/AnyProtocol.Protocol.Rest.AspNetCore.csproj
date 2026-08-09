@@ -12,5 +12,6 @@
     <ProjectReference Include="..\AnyProtocol\AnyProtocol.csproj" />
     <ProjectReference Include="..\AnyProtocol.DependencyInjection.Microsoft\AnyProtocol.DependencyInjection.Microsoft.csproj" />
     <ProjectReference Include="..\AnyProtocol.Protocol.Abstraction\AnyProtocol.Protocol.Abstraction.csproj" />
+    <ProjectReference Include="..\AnyProtocol.Protocol.Rest\AnyProtocol.Protocol.Rest.csproj" />
   </ItemGroup>
 </Project>
