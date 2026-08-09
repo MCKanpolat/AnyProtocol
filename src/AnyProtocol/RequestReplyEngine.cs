@@ -43,11 +43,28 @@ public sealed class RequestReplyEngine : IAsyncDisposable
     /// <param name="timeout">The maximum time allowed for the operation.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the request async.</returns>
-    public async ValueTask<TransportEnvelope> RequestAsync(
+    public ValueTask<TransportEnvelope> RequestAsync(
         string channel,
         TransportEnvelope request,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
+        => RequestAsync(channel, request, timeout, cancellationToken, null);
+
+    /// <summary>
+    /// Sends a request and waits for its response.
+    /// </summary>
+    /// <param name="channel">The request channel.</param>
+    /// <param name="request">The request to process.</param>
+    /// <param name="timeout">The maximum time allowed for the operation.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation.</param>
+    /// <param name="method">The optional contract method metadata.</param>
+    /// <returns>A task whose result contains the request async.</returns>
+    public async ValueTask<TransportEnvelope> RequestAsync(
+        string channel,
+        TransportEnvelope request,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        ContractMethodDescriptor? method)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channel);
         ArgumentNullException.ThrowIfNull(request);
@@ -62,6 +79,27 @@ public sealed class RequestReplyEngine : IAsyncDisposable
         if (timeout != Timeout.InfiniteTimeSpan)
         {
             operationCancellation.CancelAfter(timeout);
+        }
+
+        if (_transport is IMethodAwareRequestReplyTransport methodAwareTransport && method is not null)
+        {
+            try
+            {
+                return await methodAwareTransport.RequestAsync(
+                        channel,
+                        request,
+                        method,
+                        operationCancellation.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+                throw new ObjectDisposedException(nameof(RequestReplyEngine));
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"No response was received from '{channel}' within {timeout}.");
+            }
         }
 
         if (_transport is INativeRequestReplyTransport nativeTransport)

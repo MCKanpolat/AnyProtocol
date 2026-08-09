@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using AnyProtocol.Abstraction;
@@ -9,7 +10,11 @@ namespace AnyProtocol.Protocol.Rest;
 /// <summary>
 /// Implements rest messaging messaging transport operations.
 /// </summary>
-public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestReplyTransport
+public sealed class RestMessagingProtocol :
+    IMessagingProtocol,
+    INativeRequestReplyTransport,
+    IMethodAwareMessagingProtocol,
+    IMethodAwareRequestReplyTransport
 {
     private static readonly JsonSerializerOptions ProblemJsonOptions = new()
     {
@@ -18,6 +23,7 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
     private readonly HttpClient _httpClient;
     private readonly IMessageSerializer _serializer;
     private readonly string _routePrefix;
+    private readonly Func<ContractMethodDescriptor, string?>? _httpMethodResolver;
 
     /// <summary>
     /// Initializes a new instance of the RestMessagingProtocol class.
@@ -29,11 +35,28 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
         HttpClient httpClient,
         IMessageSerializer serializer,
         string routePrefix = "/anyprotocol")
+        : this(httpClient, serializer, routePrefix, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the RestMessagingProtocol class.
+    /// </summary>
+    /// <param name="httpClient">The http client.</param>
+    /// <param name="serializer">The serializer.</param>
+    /// <param name="routePrefix">The route prefix.</param>
+    /// <param name="httpMethodResolver">The optional fallback HTTP method resolver.</param>
+    public RestMessagingProtocol(
+        HttpClient httpClient,
+        IMessageSerializer serializer,
+        string routePrefix,
+        Func<ContractMethodDescriptor, string?>? httpMethodResolver)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         var normalizedPrefix = routePrefix.Trim('/');
         _routePrefix = normalizedPrefix.Length == 0 ? string.Empty : $"/{normalizedPrefix}";
+        _httpMethodResolver = httpMethodResolver;
     }
 
     /// <summary>
@@ -48,11 +71,30 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
         IMessageSerializer serializer,
         string clientName,
         string routePrefix = "/anyprotocol")
+        : this(httpClientFactory, serializer, clientName, routePrefix, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the RestMessagingProtocol class.
+    /// </summary>
+    /// <param name="httpClientFactory">The http client factory.</param>
+    /// <param name="serializer">The serializer.</param>
+    /// <param name="clientName">The client name.</param>
+    /// <param name="routePrefix">The route prefix.</param>
+    /// <param name="httpMethodResolver">The optional fallback HTTP method resolver.</param>
+    public RestMessagingProtocol(
+        IHttpClientFactory httpClientFactory,
+        IMessageSerializer serializer,
+        string clientName,
+        string routePrefix,
+        Func<ContractMethodDescriptor, string?>? httpMethodResolver)
         : this(
             httpClientFactory?.CreateClient(clientName) ??
             throw new ArgumentNullException(nameof(httpClientFactory)),
             serializer,
-            routePrefix)
+            routePrefix,
+            httpMethodResolver)
     {
     }
 
@@ -89,8 +131,31 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
         string channel,
         TransportEnvelope envelope,
         CancellationToken cancellationToken = default)
+        => await SendAsyncCore(channel, envelope, "POST", cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Sends a transport envelope using the HTTP method resolved for the contract method.
+    /// </summary>
+    /// <param name="channel">The logical message channel.</param>
+    /// <param name="envelope">The transport envelope to process.</param>
+    /// <param name="method">The contract method metadata.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    public ValueTask SendAsync(
+        string channel,
+        TransportEnvelope envelope,
+        ContractMethodDescriptor method,
+        CancellationToken cancellationToken = default)
+        => SendAsyncCore(channel, envelope, ResolveHttpMethod(method), cancellationToken);
+
+    private async ValueTask SendAsyncCore(
+        string channel,
+        TransportEnvelope envelope,
+        string httpMethod,
+        CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(channel, envelope);
+        using var request = CreateRequest(channel, envelope, httpMethod);
         using var response = await _httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -121,8 +186,39 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
         string channel,
         TransportEnvelope requestEnvelope,
         CancellationToken cancellationToken = default)
+        => await RequestAsyncCore(
+                channel,
+                requestEnvelope,
+                "POST",
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Sends a request using the HTTP method resolved for the contract method.
+    /// </summary>
+    /// <param name="channel">The logical message channel.</param>
+    /// <param name="requestEnvelope">The request envelope.</param>
+    /// <param name="method">The contract method metadata.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation.</param>
+    /// <returns>A task whose result contains the response envelope.</returns>
+    public ValueTask<TransportEnvelope> RequestAsync(
+        string channel,
+        TransportEnvelope requestEnvelope,
+        ContractMethodDescriptor method,
+        CancellationToken cancellationToken = default)
+        => RequestAsyncCore(
+            channel,
+            requestEnvelope,
+            ResolveHttpMethod(method),
+            cancellationToken);
+
+    private async ValueTask<TransportEnvelope> RequestAsyncCore(
+        string channel,
+        TransportEnvelope requestEnvelope,
+        string httpMethod,
+        CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(channel, requestEnvelope);
+        using var request = CreateRequest(channel, requestEnvelope, httpMethod);
         using var response = await _httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -164,11 +260,14 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
     /// <returns>A task that represents the asynchronous operation.</returns>
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
-    private HttpRequestMessage CreateRequest(string channel, TransportEnvelope envelope)
+    private HttpRequestMessage CreateRequest(
+        string channel,
+        TransportEnvelope envelope,
+        string httpMethod)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channel);
         var request = new HttpRequestMessage(
-            HttpMethod.Post,
+            new HttpMethod(httpMethod),
             $"{_routePrefix}/{EscapeChannel(channel)}")
         {
             Content = new ReadOnlyMemoryContent(envelope.Body)
@@ -191,6 +290,86 @@ public sealed class RestMessagingProtocol : IMessagingProtocol, INativeRequestRe
 
         return request;
     }
+
+    private string ResolveHttpMethod(ContractMethodDescriptor method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        var candidates = method.Method
+            .GetCustomAttributes<RestHttpMethodAttribute>(inherit: true)
+            .Select(attribute => new HttpMethodCandidate(attribute.Method, "RestHttpMethodAttribute"))
+            .Concat(GetAspNetHttpMethodCandidates(method.Method))
+            .Select(candidate => new HttpMethodCandidate(
+                NormalizeHttpMethod(candidate.Method, candidate.Source),
+                candidate.Source))
+            .DistinctBy(static candidate => candidate.Method, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (candidates.Length > 1)
+        {
+            throw new InvalidOperationException(
+                $"Multiple HTTP methods are configured for " +
+                $"'{method.ContractName}.{method.MethodName}': " +
+                string.Join(
+                    ", ",
+                    candidates.Select(candidate =>
+                        $"'{candidate.Method}' ({candidate.Source})")) + ". " +
+                "Configure exactly one HTTP method for each REST operation.");
+        }
+
+        if (candidates.Length == 1)
+        {
+            return candidates[0].Method;
+        }
+
+        var fallback = _httpMethodResolver?.Invoke(method) ?? "POST";
+        return NormalizeHttpMethod(fallback, "fallback HTTP method");
+    }
+
+    private static IEnumerable<HttpMethodCandidate> GetAspNetHttpMethodCandidates(
+        MethodInfo method)
+    {
+        foreach (var attribute in method.GetCustomAttributes(inherit: true))
+        {
+            var attributeType = attribute.GetType();
+            if (attributeType.Namespace is null ||
+                !attributeType.Namespace.StartsWith(
+                    "Microsoft.AspNetCore.Mvc",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var property = attributeType.GetProperty("HttpMethods");
+            if (property?.GetValue(attribute) is not IEnumerable<string> methods)
+            {
+                continue;
+            }
+
+            foreach (var httpMethod in methods)
+            {
+                yield return new HttpMethodCandidate(
+                    httpMethod,
+                    $"{attributeType.Name}");
+            }
+        }
+    }
+
+    private static string NormalizeHttpMethod(string method, string source)
+    {
+        var normalized = method.Trim().ToUpperInvariant();
+        if (normalized.Length == 0 ||
+            normalized.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) &&
+                !"!#$%&'*+-.^_`|~".Contains(character)))
+        {
+            throw new InvalidOperationException(
+                $"The HTTP method '{method}' from {source} is not a valid HTTP method token.");
+        }
+
+        return normalized;
+    }
+
+    private sealed record HttpMethodCandidate(string Method, string Source);
 
     private static MessageHeaders ReadHeaders(HttpResponseMessage response)
     {
