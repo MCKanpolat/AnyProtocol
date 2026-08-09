@@ -350,7 +350,7 @@ public sealed class ContractProxyTests
         }
     }
 
-    private sealed class CapturingTransport : IMessagingProtocol
+    private sealed class CapturingTransport : ISendTransport
     {
         public TransportEnvelope? Envelope { get; private set; }
 

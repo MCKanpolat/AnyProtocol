@@ -179,7 +179,7 @@ public sealed class CoreTests
         }
     }
 
-    private sealed class OutOfOrderStreamTransport : IMessagingProtocol
+    private sealed class OutOfOrderStreamTransport : ISendTransport, ISubscriptionTransport
     {
         private Func<TransportEnvelope, CancellationToken, ValueTask>? _replyHandler;
 

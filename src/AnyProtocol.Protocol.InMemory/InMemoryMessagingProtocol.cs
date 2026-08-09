@@ -8,7 +8,7 @@ namespace AnyProtocol.Protocol.InMemory;
 /// <summary>
 /// Implements in memory messaging messaging transport operations.
 /// </summary>
-public sealed class InMemoryMessagingProtocol : IMessagingProtocol, ITransportReadiness
+public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTransport, ITransportReadiness
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, List<Subscription>> _subscriptions =

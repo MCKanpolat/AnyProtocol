@@ -345,7 +345,7 @@ internal sealed class StaticResolverFactory(Type serviceType, object service)
     }
 }
 
-internal sealed class CaptureProtocol(string replyChannel) : IMessagingProtocol
+internal sealed class CaptureProtocol(string replyChannel) : ISendTransport
 {
     public TransportEnvelope? Response { get; private set; }
 
@@ -364,13 +364,6 @@ internal sealed class CaptureProtocol(string replyChannel) : IMessagingProtocol
         Response = envelope;
         return ValueTask.CompletedTask;
     }
-
-    public ValueTask<IAsyncDisposable> SubscribeAsync(
-        string channel,
-        Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-        SubscriptionOptions? options = null,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

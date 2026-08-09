@@ -12,7 +12,8 @@ namespace AnyProtocol.Protocol.Kafka;
 /// Implements kafka messaging messaging transport operations.
 /// </summary>
 public sealed class KafkaMessagingProtocol :
-    IMessagingProtocol,
+    ISendTransport,
+    ISubscriptionTransport,
     IDeadLetterTransport,
     ITransportReadiness
 {

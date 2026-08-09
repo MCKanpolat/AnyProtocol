@@ -134,6 +134,14 @@ public sealed class LinkConfiguration
 
             if (transport is not INativeServerTransport)
             {
+                RequireInterface<EventRegistration, ISendTransport>(
+                    registration,
+                    transport,
+                    "event publishing");
+                RequireInterface<EventRegistration, ISubscriptionTransport>(
+                    registration,
+                    transport,
+                    "event subscriptions");
                 RequireCapability(
                     registration,
                     transport,
@@ -232,12 +240,51 @@ public sealed class LinkConfiguration
                 $"'{protocol}'.");
         }
 
+        ValidateOrdering(
+            registration.ContractType.FullName ?? registration.ContractType.Name,
+            protocol.Value,
+            registration.RequiredOrdering,
+            methods.All(method => method.PartitionKeyProperty is not null),
+            transport.Semantics);
+
         if (isServer && transport is not INativeServerTransport)
         {
+            RequireInterface<ContractRegistration, ISubscriptionTransport>(
+                registration,
+                transport,
+                "server subscriptions",
+                protocol);
+            RequireInterface<ContractRegistration, ISendTransport>(
+                registration,
+                transport,
+                "server responses",
+                protocol);
             RequireCapability(registration, protocol, transport,
                 TransportCapabilities.PublishSubscribe, "server subscriptions");
             RequireCapability(registration, protocol, transport,
                 TransportCapabilities.CompetingConsumers, "competing server consumers");
+        }
+
+        if (!isServer && methods.Any(method =>
+                method.Operation == ContractOperation.Send && !method.ExpectReply))
+        {
+            RequireInterface<ContractRegistration, ISendTransport>(
+                registration,
+                transport,
+                "client sends",
+                protocol);
+        }
+
+        if (!isServer &&
+            methods.Any(method =>
+                method.Operation == ContractOperation.Request || method.ExpectReply) &&
+            transport.Capabilities.HasFlag(TransportCapabilities.NativeRequestReply))
+        {
+            RequireInterface<ContractRegistration, IRequestReplyTransport>(
+                registration,
+                transport,
+                "native request/reply",
+                protocol);
         }
 
         if (!isServer &&
@@ -247,9 +294,31 @@ public sealed class LinkConfiguration
         {
             RequireCapability(registration, protocol, transport,
                 TransportCapabilities.PublishSubscribe, "request/reply emulation");
+            RequireInterface<ContractRegistration, ISubscriptionTransport>(
+                registration,
+                transport,
+                "request/reply emulation subscriptions",
+                protocol);
+            RequireInterface<ContractRegistration, ISendTransport>(
+                registration,
+                transport,
+                "request/reply emulation sends",
+                protocol);
         }
 
-        if (methods.Any(method => method.Operation == ContractOperation.Stream) &&
+        if (!isServer &&
+            methods.Any(method => method.Operation == ContractOperation.Stream) &&
+            transport.Capabilities.HasFlag(TransportCapabilities.NativeStreaming))
+        {
+            RequireInterface<ContractRegistration, IStreamingTransport>(
+                registration,
+                transport,
+                "native streaming",
+                protocol);
+        }
+
+        if (!isServer &&
+            methods.Any(method => method.Operation == ContractOperation.Stream) &&
             !transport.Capabilities.HasFlag(TransportCapabilities.NativeStreaming) &&
             !transport.Capabilities.HasFlag(TransportCapabilities.PublishSubscribe))
         {
@@ -259,12 +328,23 @@ public sealed class LinkConfiguration
                 "publish/subscribe stream emulation.");
         }
 
-        ValidateOrdering(
-            registration.ContractType.FullName ?? registration.ContractType.Name,
-            protocol.Value,
-            registration.RequiredOrdering,
-            methods.All(method => method.PartitionKeyProperty is not null),
-            transport.Semantics);
+        if (!isServer &&
+            methods.Any(method => method.Operation == ContractOperation.Stream) &&
+            !transport.Capabilities.HasFlag(TransportCapabilities.NativeStreaming))
+        {
+            RequireCapability(registration, protocol, transport,
+                TransportCapabilities.PublishSubscribe, "stream emulation");
+            RequireInterface<ContractRegistration, ISubscriptionTransport>(
+                registration,
+                transport,
+                "stream emulation subscriptions",
+                protocol);
+            RequireInterface<ContractRegistration, ISendTransport>(
+                registration,
+                transport,
+                "stream emulation sends",
+                protocol);
+        }
 
         var partitionedMethod = methods.FirstOrDefault(
             method => method.PartitionKeyProperty is not null);
@@ -304,6 +384,34 @@ public sealed class LinkConfiguration
                 $"Event '{registration.EventType.FullName}' requires {feature}, but transport " +
                 $"'{registration.Protocol}' does not support {capability}.");
         }
+    }
+
+    private static void RequireInterface<TRegistration, TCapability>(
+        TRegistration registration,
+        IMessagingProtocol transport,
+        string feature,
+        ProtocolKey? protocol = null)
+        where TRegistration : class
+        where TCapability : class
+    {
+        if (transport is TCapability)
+        {
+            return;
+        }
+
+        var registrationName = registration switch
+        {
+            ContractRegistration contract => contract.ContractType.FullName ?? contract.ContractType.Name,
+            EventRegistration @event => @event.EventType.FullName ?? @event.EventType.Name,
+            _ => typeof(TRegistration).Name
+        };
+        var transportName = protocol?.Value ??
+            (registration is EventRegistration eventRegistration
+                ? eventRegistration.Protocol.Value
+                : "the configured transport");
+        throw new InvalidOperationException(
+            $"'{registrationName}' requires {feature}, but transport '{transportName}' " +
+            $"does not implement {typeof(TCapability).Name}.");
     }
 
     private static void ValidateOrdering(

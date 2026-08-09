@@ -12,7 +12,7 @@ namespace AnyProtocol.Protocol.ZeroMq;
 /// <summary>
 /// Implements zero mq messaging messaging transport operations.
 /// </summary>
-public sealed class ZeroMqMessagingProtocol : IMessagingProtocol, ITransportReadiness
+public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTransport, ITransportReadiness
 {
     private readonly IEnvelopeCodec _codec;
     private readonly ZeroMqProtocolOptions _options;

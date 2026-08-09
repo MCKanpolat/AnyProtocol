@@ -616,7 +616,7 @@ public static class RestEndpointExtensions
 
     private sealed class RestEndpointMarker;
 
-    private sealed class CaptureProtocol : IMessagingProtocol
+    private sealed class CaptureProtocol : ISendTransport
     {
         public const string ReplyChannel = "_anyprotocol.http.response";
 
@@ -639,13 +639,6 @@ public static class RestEndpointExtensions
             Response = envelope;
             return ValueTask.CompletedTask;
         }
-
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
-            string channel,
-            Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-            SubscriptionOptions? options = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

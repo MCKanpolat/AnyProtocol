@@ -110,7 +110,10 @@ public sealed class StreamEngine : IAsyncDisposable
         {
             try
             {
-                await _transport.SendAsync(
+                var sendTransport = _transport as ISendTransport ??
+                    throw new InvalidOperationException(
+                        "Stream emulation requires an ISendTransport implementation.");
+                await sendTransport.SendAsync(
                         channel,
                         new TransportEnvelope(headers, request.Body),
                         operationCancellation.Token)
@@ -246,7 +249,10 @@ public sealed class StreamEngine : IAsyncDisposable
                 Volatile.Write(ref _state, (int)EngineState.Starting);
                 try
                 {
-                    _replySubscription = await _transport.SubscribeAsync(
+                    var subscriptionTransport = _transport as ISubscriptionTransport ??
+                        throw new InvalidOperationException(
+                            "Stream emulation requires an ISubscriptionTransport implementation.");
+                    _replySubscription = await subscriptionTransport.SubscribeAsync(
                             _replyChannel,
                             HandleReplyAsync,
                             cancellationToken: cancellationToken)

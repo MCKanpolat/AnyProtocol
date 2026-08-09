@@ -246,7 +246,7 @@ public class AnyProtocolGrpcService
         ContractMethodDescriptor Method,
         ProtocolKey Protocol);
 
-    private sealed class CaptureProtocol : IMessagingProtocol
+    private sealed class CaptureProtocol : ISendTransport
     {
         public TransportEnvelope? Response { get; private set; }
 
@@ -267,13 +267,6 @@ public class AnyProtocolGrpcService
             Response = envelope;
             return ValueTask.CompletedTask;
         }
-
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
-            string channel,
-            Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-            SubscriptionOptions? options = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

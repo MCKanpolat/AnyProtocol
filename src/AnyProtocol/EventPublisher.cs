@@ -13,7 +13,7 @@ namespace AnyProtocol;
 public sealed class EventPublisher<TEvent> : IEventPublisher<TEvent>
     where TEvent : class
 {
-    private readonly IMessagingProtocol _transport;
+    private readonly ISendTransport _transport;
     private readonly IMessageSerializer _serializer;
     private readonly string _channel;
     private readonly string _transportName;
@@ -28,7 +28,7 @@ public sealed class EventPublisher<TEvent> : IEventPublisher<TEvent>
     /// <param name="transportName">The transport name.</param>
     /// <returns>The result of the event publisher operation.</returns>
     public EventPublisher(
-        IMessagingProtocol transport,
+        ISendTransport transport,
         IMessageSerializer serializer,
         string channel,
         string transportName = "unknown")

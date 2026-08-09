@@ -5,7 +5,7 @@ namespace AnyProtocol.Protocol.Abstraction;
 /// <summary>
 /// Defines native request-reply operations that receive contract method metadata.
 /// </summary>
-public interface IMethodAwareRequestReplyTransport
+public interface IMethodAwareRequestReplyTransport : IRequestReplyTransport
 {
     /// <summary>
     /// Sends a request using the specified contract method metadata and waits for its response.
