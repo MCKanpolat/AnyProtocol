@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using AnyProtocol.Abstraction;
+using AnyProtocol.Encoder.Abstraction;
+using AnyProtocol.Encoder.Compression;
+using AnyProtocol.Encoder.MessagePack;
+using AnyProtocol.Encoder.Protobuf;
 using AnyProtocol.Protocol.Abstraction;
 
 namespace AnyProtocol.Protocol.ZeroMq.Tests;
@@ -38,6 +42,66 @@ public sealed class ZeroMqMessagingProtocolTests
         Assert.Equal("message-1", envelope.Headers[HeaderNames.MessageId]);
         Assert.Equal("value", envelope.Headers["x-custom"]);
         Assert.Equal("payload", Encoding.UTF8.GetString(envelope.Body.Span));
+    }
+
+    [Fact]
+    public async Task Client_and_server_can_use_a_custom_envelope_codec()
+    {
+        var codec = new PrefixEnvelopeCodec();
+        var (server, client) = CreatePair(codec);
+        await using var serverLifetime = server;
+        await using var clientLifetime = client;
+        var received = new TaskCompletionSource<TransportEnvelope>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var subscription = await server.SubscribeAsync(
+            "custom",
+            (envelope, _) =>
+            {
+                received.TrySetResult(envelope);
+                return ValueTask.CompletedTask;
+            });
+
+        await client.SendAsync(
+            "custom",
+            new TransportEnvelope(new MessageHeaders(), "custom-body"u8.ToArray()));
+
+        Assert.Equal("custom-body", Encoding.UTF8.GetString(
+            (await received.Task.WaitAsync(TimeSpan.FromSeconds(5))).Body.Span));
+        Assert.True(codec.EncodeCalls > 0);
+        Assert.True(codec.DecodeCalls > 0);
+    }
+
+    [Theory]
+    [InlineData("binary")]
+    [InlineData("messagepack")]
+    [InlineData("protobuf")]
+    [InlineData("compressed-binary")]
+    [InlineData("compressed-messagepack")]
+    [InlineData("compressed-protobuf")]
+    [InlineData("brotli-compressed-binary")]
+    [InlineData("brotli-compressed-messagepack")]
+    [InlineData("brotli-compressed-protobuf")]
+    public async Task Client_to_server_round_trips_with_each_envelope_codec(string codecName)
+    {
+        var (server, client) = CreatePair(CreateCodec(codecName));
+        await using var serverLifetime = server;
+        await using var clientLifetime = client;
+        var received = new TaskCompletionSource<TransportEnvelope>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var subscription = await server.SubscribeAsync(
+            "codec-matrix",
+            (envelope, _) =>
+            {
+                received.TrySetResult(envelope);
+                return ValueTask.CompletedTask;
+            });
+
+        await client.SendAsync(
+            "codec-matrix",
+            new TransportEnvelope(new MessageHeaders(), "codec-matrix"u8.ToArray()));
+
+        var envelope = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("codec-matrix", Encoding.UTF8.GetString(envelope.Body.Span));
     }
 
     [Fact]
@@ -148,29 +212,64 @@ public sealed class ZeroMqMessagingProtocolTests
         Assert.Equal(10, Volatile.Read(ref count));
     }
 
-    private static (ZeroMqMessagingProtocol Server, ZeroMqMessagingProtocol Client) CreatePair()
+    private static (ZeroMqMessagingProtocol Server, ZeroMqMessagingProtocol Client) CreatePair(
+        IEnvelopeCodec? codec = null)
     {
         var endpoints = CreateEndpoints();
-        return (CreateServer(endpoints), CreateClient(endpoints));
+        return (CreateServer(endpoints, codec), CreateClient(endpoints, codec));
     }
 
-    private static ZeroMqMessagingProtocol CreateServer(Endpoints endpoints)
+    private static IEnvelopeCodec CreateCodec(string name)
+        => name switch
+        {
+            "binary" => new BinaryEnvelopeCodec(),
+            "messagepack" => new MessagePackEnvelopeCodec(),
+            "protobuf" => new ProtobufEnvelopeCodec(),
+            "compressed-binary" => Compress(new BinaryEnvelopeCodec()),
+            "compressed-messagepack" => Compress(new MessagePackEnvelopeCodec()),
+            "compressed-protobuf" => Compress(new ProtobufEnvelopeCodec()),
+            "brotli-compressed-binary" => Compress(
+                new BinaryEnvelopeCodec(),
+                CompressionAlgorithm.Brotli),
+            "brotli-compressed-messagepack" => Compress(
+                new MessagePackEnvelopeCodec(),
+                CompressionAlgorithm.Brotli),
+            "brotli-compressed-protobuf" => Compress(
+                new ProtobufEnvelopeCodec(),
+                CompressionAlgorithm.Brotli),
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown test codec.")
+        };
+
+    private static IEnvelopeCodec Compress(
+        IEnvelopeCodec inner,
+        CompressionAlgorithm algorithm = CompressionAlgorithm.GZip)
+        => new CompressedEnvelopeCodec(
+            inner,
+            new CompressedEnvelopeCodecOptions
+            {
+                Algorithm = algorithm,
+                CompressionThreshold = 0
+            });
+
+    private static ZeroMqMessagingProtocol CreateServer(Endpoints endpoints, IEnvelopeCodec? codec = null)
         => new(
             new ZeroMqProtocolOptions
             {
                 Role = ZeroMqRole.Server,
                 RouterEndpoint = endpoints.Router,
                 PublisherEndpoint = endpoints.Publisher
-            });
+            },
+            codec ?? new BinaryEnvelopeCodec());
 
-    private static ZeroMqMessagingProtocol CreateClient(Endpoints endpoints)
+    private static ZeroMqMessagingProtocol CreateClient(Endpoints endpoints, IEnvelopeCodec? codec = null)
         => new(
             new ZeroMqProtocolOptions
             {
                 Role = ZeroMqRole.Client,
                 RouterEndpoint = endpoints.Router,
                 PublisherEndpoint = endpoints.Publisher
-            });
+            },
+            codec ?? new BinaryEnvelopeCodec());
 
     private static Endpoints CreateEndpoints()
     {
@@ -197,4 +296,35 @@ public sealed class ZeroMqMessagingProtocolTests
     }
 
     private sealed record Endpoints(string Router, string Publisher);
+
+    private sealed class PrefixEnvelopeCodec : IEnvelopeCodec
+    {
+        private const byte Prefix = 0xA5;
+        private readonly BinaryEnvelopeCodec _inner = new();
+
+        public int EncodeCalls { get; private set; }
+
+        public int DecodeCalls { get; private set; }
+
+        public ReadOnlyMemory<byte> Encode(TransportEnvelope envelope)
+        {
+            EncodeCalls++;
+            var frame = _inner.Encode(envelope);
+            var result = new byte[frame.Length + 1];
+            result[0] = Prefix;
+            frame.Span.CopyTo(result.AsSpan(1));
+            return result;
+        }
+
+        public TransportEnvelope Decode(ReadOnlyMemory<byte> frame)
+        {
+            DecodeCalls++;
+            if (frame.Length == 0 || frame.Span[0] != Prefix)
+            {
+                throw new InvalidDataException("The test envelope prefix is invalid.");
+            }
+
+            return _inner.Decode(frame[1..]);
+        }
+    }
 }

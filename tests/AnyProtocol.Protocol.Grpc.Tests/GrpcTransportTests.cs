@@ -1,6 +1,10 @@
 using System.Runtime.CompilerServices;
 using AnyProtocol.Abstraction;
 using AnyProtocol.DependencyInjection.Microsoft;
+using AnyProtocol.Encoder.Abstraction;
+using AnyProtocol.Encoder.Compression;
+using AnyProtocol.Encoder.MessagePack;
+using AnyProtocol.Encoder.Protobuf;
 using AnyProtocol.Protocol.Abstraction;
 using AnyProtocol.Protocol.Grpc.AspNetCore;
 using AnyProtocol.Serializer.TextJson;
@@ -152,6 +156,56 @@ public sealed class GrpcTransportTests
     }
 
     [Fact]
+    public async Task Custom_codec_is_used_by_the_client_and_server()
+    {
+        var serverCodec = new PrefixEnvelopeCodec();
+        await using var host = await CreateHostAsync(serverCodec);
+        var clientCodec = new PrefixEnvelopeCodec();
+        await using var clientProvider = CreateClientProvider(host, codec: clientCodec);
+        var client = clientProvider.GetRequiredService<IGrpcTestService>();
+
+        var response = await client.EchoAsync(new GrpcRequest("custom"), CancellationToken.None);
+
+        Assert.Equal("custom", response.Value);
+        Assert.True(serverCodec.EncodeCalls > 0);
+        Assert.True(serverCodec.DecodeCalls > 0);
+        Assert.True(clientCodec.EncodeCalls > 0);
+        Assert.True(clientCodec.DecodeCalls > 0);
+    }
+
+    [Theory]
+    [InlineData("binary")]
+    [InlineData("messagepack")]
+    [InlineData("protobuf")]
+    [InlineData("compressed-binary")]
+    [InlineData("compressed-messagepack")]
+    [InlineData("compressed-protobuf")]
+    [InlineData("brotli-compressed-binary")]
+    [InlineData("brotli-compressed-messagepack")]
+    [InlineData("brotli-compressed-protobuf")]
+    public async Task Unary_proxy_round_trips_with_each_envelope_codec(string codecName)
+    {
+        await using var host = await CreateHostAsync(CreateCodec(codecName));
+        await using var clientProvider = CreateClientProvider(host, codec: CreateCodec(codecName));
+        var client = clientProvider.GetRequiredService<IGrpcTestService>();
+
+        var response = await client.EchoAsync(new GrpcRequest(codecName), CancellationToken.None);
+
+        Assert.Equal(codecName, response.Value);
+    }
+
+    [Fact]
+    public async Task Incompatible_codecs_fail_as_a_transport_error()
+    {
+        await using var host = await CreateHostAsync();
+        await using var clientProvider = CreateClientProvider(host, codec: new PrefixEnvelopeCodec());
+        var client = clientProvider.GetRequiredService<IGrpcTestService>();
+
+        await Assert.ThrowsAsync<IOException>(
+            async () => await client.EchoAsync(new GrpcRequest("incompatible"), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Unary_fault_and_deadline_map_to_AnyProtocol_behavior()
     {
         await using var host = await CreateHostAsync();
@@ -268,11 +322,17 @@ public sealed class GrpcTransportTests
         await StreamScopeProbe.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
-    private static async Task<WebApplication> CreateHostAsync()
+    private static async Task<WebApplication> CreateHostAsync(IEnvelopeCodec? codec = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddScoped<StreamScopeProbe>();
+        if (codec is not null)
+        {
+            builder.Services.AddSingleton(codec);
+            builder.Services.AddSingleton<IEnvelopeCodec>(codec);
+        }
+
         builder.Services.AddAnyProtocol(link => link
             .UseSerializer(new TextJsonMessageSerializer())
             .AddGrpcServer()
@@ -289,12 +349,15 @@ public sealed class GrpcTransportTests
 
     private static ServiceProvider CreateClientProvider(
         WebApplication host,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        IEnvelopeCodec? codec = null)
     {
         var channel = GrpcChannel.ForAddress(
             "http://localhost",
             new GrpcChannelOptions { HttpHandler = host.GetTestServer().CreateHandler() });
-        var transport = new GrpcMessagingProtocol(channel, disposeChannel: true);
+        var transport = codec is null
+            ? new GrpcMessagingProtocol(channel, disposeChannel: true)
+            : new GrpcMessagingProtocol(channel, codec, disposeChannel: true);
         var services = new ServiceCollection();
         services.AddAnyProtocol(link => link
             .UseSerializer(new TextJsonMessageSerializer())
@@ -304,5 +367,68 @@ public sealed class GrpcTransportTests
                     .UseTransport("grpc")
                     .WithTimeout(timeout ?? TimeSpan.FromSeconds(5))));
         return services.BuildServiceProvider();
+    }
+
+    private static IEnvelopeCodec CreateCodec(string name)
+        => name switch
+        {
+            "binary" => new BinaryEnvelopeCodec(),
+            "messagepack" => new MessagePackEnvelopeCodec(),
+            "protobuf" => new ProtobufEnvelopeCodec(),
+            "compressed-binary" => Compress(new BinaryEnvelopeCodec()),
+            "compressed-messagepack" => Compress(new MessagePackEnvelopeCodec()),
+            "compressed-protobuf" => Compress(new ProtobufEnvelopeCodec()),
+            "brotli-compressed-binary" => Compress(
+                new BinaryEnvelopeCodec(),
+                CompressionAlgorithm.Brotli),
+            "brotli-compressed-messagepack" => Compress(
+                new MessagePackEnvelopeCodec(),
+                CompressionAlgorithm.Brotli),
+            "brotli-compressed-protobuf" => Compress(
+                new ProtobufEnvelopeCodec(),
+                CompressionAlgorithm.Brotli),
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown test codec.")
+        };
+
+    private static IEnvelopeCodec Compress(
+        IEnvelopeCodec inner,
+        CompressionAlgorithm algorithm = CompressionAlgorithm.GZip)
+        => new CompressedEnvelopeCodec(
+            inner,
+            new CompressedEnvelopeCodecOptions
+            {
+                Algorithm = algorithm,
+                CompressionThreshold = 0
+            });
+
+    private sealed class PrefixEnvelopeCodec : IEnvelopeCodec
+    {
+        private const byte Prefix = 0xA5;
+        private readonly BinaryEnvelopeCodec _inner = new();
+
+        public int EncodeCalls { get; private set; }
+
+        public int DecodeCalls { get; private set; }
+
+        public ReadOnlyMemory<byte> Encode(TransportEnvelope envelope)
+        {
+            EncodeCalls++;
+            var frame = _inner.Encode(envelope);
+            var result = new byte[frame.Length + 1];
+            result[0] = Prefix;
+            frame.Span.CopyTo(result.AsSpan(1));
+            return result;
+        }
+
+        public TransportEnvelope Decode(ReadOnlyMemory<byte> frame)
+        {
+            DecodeCalls++;
+            if (frame.Length == 0 || frame.Span[0] != Prefix)
+            {
+                throw new InvalidDataException("The test envelope prefix is invalid.");
+            }
+
+            return _inner.Decode(frame[1..]);
+        }
     }
 }

@@ -12,6 +12,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\AnyProtocol\AnyProtocol.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Encoder.Compression\AnyProtocol.Encoder.Compression.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Encoder.MessagePack\AnyProtocol.Encoder.MessagePack.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Encoder.Protobuf\AnyProtocol.Encoder.Protobuf.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Protocol.InMemory\AnyProtocol.Protocol.InMemory.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Serializer.TextJson\AnyProtocol.Serializer.TextJson.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Serializer.MessagePack\AnyProtocol.Serializer.MessagePack.csproj" />

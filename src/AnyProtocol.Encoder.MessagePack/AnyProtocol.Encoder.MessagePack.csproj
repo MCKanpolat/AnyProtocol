@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>AnyProtocol.Encoder.MessagePack</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="MessagePack" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AnyProtocol\AnyProtocol.csproj" />
+      <ProjectReference Include="..\AnyProtocol.Abstraction\AnyProtocol.Abstraction.csproj" />
+      <ProjectReference Include="..\AnyProtocol.Encoder.Abstraction\AnyProtocol.Encoder.Abstraction.csproj" />
+    </ItemGroup>
+
+</Project>

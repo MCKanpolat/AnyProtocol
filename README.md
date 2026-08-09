@@ -61,13 +61,46 @@ dotnet add package AnyProtocol.Serializer.TextJson
 |---|---|
 | Contracts and core pipeline | `AnyProtocol`, `AnyProtocol.Abstraction` |
 | Microsoft DI and hosted lifecycle | `AnyProtocol.DependencyInjection.Microsoft` |
-| JSON / MessagePack | `AnyProtocol.Serializer.TextJson`, `AnyProtocol.Serializer.MessagePack` |
+| Payload serialization (JSON / MessagePack) | `AnyProtocol.Serializer.TextJson`, `AnyProtocol.Serializer.MessagePack` |
+| Envelope codecs (MessagePack / Protobuf / compression) | `AnyProtocol.Encoder.MessagePack`, `AnyProtocol.Encoder.Protobuf`, `AnyProtocol.Encoder.Compression` |
 | In-process transport | `AnyProtocol.Protocol.InMemory` |
 | REST client / ASP.NET Core server | `AnyProtocol.Protocol.Rest`, `AnyProtocol.Protocol.Rest.AspNetCore` |
 | gRPC client / ASP.NET Core server | `AnyProtocol.Protocol.Grpc`, `AnyProtocol.Protocol.Grpc.AspNetCore` |
 | Kafka / RabbitMQ / ZeroMQ | `AnyProtocol.Protocol.Kafka`, `AnyProtocol.Protocol.RabbitMq`, `AnyProtocol.Protocol.ZeroMq` |
 | Optional MCP exposure | `AnyProtocol.Mcp`, `AnyProtocol.Mcp.AspNetCore` |
 | Compile-time contract generation | `AnyProtocol.Generator` |
+
+## Envelope codecs
+
+Payload serialization and transport envelope encoding are independent choices:
+
+```text
+application message -> IMessageSerializer -> TransportEnvelope -> IEnvelopeCodec -> transport frame
+```
+
+gRPC and ZeroMQ use the backwards-compatible `BinaryEnvelopeCodec` by default. Both transports also accept an `IEnvelopeCodec`, so MessagePack or Protobuf framing can be selected and compression can decorate any base codec. Sender and receiver must use compatible codec configurations.
+
+```csharp
+IEnvelopeCodec codec = new CompressedEnvelopeCodec(
+    new ProtobufEnvelopeCodec(),
+    new CompressedEnvelopeCodecOptions
+    {
+        Algorithm = CompressionAlgorithm.Brotli
+    });
+
+var grpc = new GrpcMessagingProtocol(
+    channel,
+    codec,
+    disposeChannel: true);
+
+var zeroMq = new ZeroMqMessagingProtocol(options, codec);
+
+// ASP.NET Core gRPC server:
+builder.Services.AddSingleton<IEnvelopeCodec>(codec);
+builder.Services.AddAnyProtocolGrpc();
+```
+
+See the [envelope codec guide](https://mckanpolat.github.io/AnyProtocol/ENCODERS.html) for package selection, wire contracts, limits, and transport configuration.
 
 ## Minimal request/reply
 
@@ -171,6 +204,7 @@ Every selected protocol is validated against every contract operation during sta
 
 - [Getting started and transport switching](https://mckanpolat.github.io/AnyProtocol/GETTING_STARTED.html)
 - [Configuration reference](https://mckanpolat.github.io/AnyProtocol/CONFIGURATION.html)
+- [Envelope codecs](https://mckanpolat.github.io/AnyProtocol/ENCODERS.html)
 - [RabbitMQ guide](https://mckanpolat.github.io/AnyProtocol/RABBITMQ.html)
 - [Transport semantics](https://mckanpolat.github.io/AnyProtocol/TRANSPORT_SEMANTICS.html)
 - [Performance methodology](https://mckanpolat.github.io/AnyProtocol/PERFORMANCE.html)

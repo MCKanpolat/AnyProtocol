@@ -8,6 +8,7 @@ AnyProtocol is a .NET 10 contract-first messaging library. Define one interface,
 
 - [Getting started](GETTING_STARTED.md)
 - [Configuration](CONFIGURATION.md)
+- [Envelope codecs](ENCODERS.md)
 
 ### Protocols
 

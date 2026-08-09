@@ -4,6 +4,8 @@
   href: GETTING_STARTED.md
 - name: Configuration
   href: CONFIGURATION.md
+- name: Envelope codecs
+  href: ENCODERS.md
 - name: Protocols
   items:
   - name: InMemory

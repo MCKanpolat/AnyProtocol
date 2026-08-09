@@ -29,6 +29,11 @@
     <Project Path="src/AnyProtocol.Storage.Abstraction/AnyProtocol.Storage.Abstraction.csproj" />
     <Project Path="src/AnyProtocol.Validation.Abstraction/AnyProtocol.Validation.Abstraction.csproj" />
   </Folder>
+  <Folder Name="/src/Encoders/">
+    <Project Path="src/AnyProtocol.Encoder.Compression/AnyProtocol.Encoder.Compression.csproj" />
+    <Project Path="src/AnyProtocol.Encoder.MessagePack/AnyProtocol.Encoder.MessagePack.csproj" />
+    <Project Path="src/AnyProtocol.Encoder.Protobuf/AnyProtocol.Encoder.Protobuf.csproj" />
+  </Folder>
   <Folder Name="/src/Protocols/">
     <Project Path="src/AnyProtocol.Mcp/AnyProtocol.Mcp.csproj" />
     <Project Path="src/AnyProtocol.Mcp.AspNetCore/AnyProtocol.Mcp.AspNetCore.csproj" />
@@ -78,6 +83,9 @@
     <Project Path="tests/AnyProtocol.Protocol.Rest.Tests/AnyProtocol.Protocol.Rest.Tests.csproj" />
     <Project Path="tests/AnyProtocol.Protocol.ZeroMq.Tests/AnyProtocol.Protocol.ZeroMq.Tests.csproj" />
     <Project Path="tests/AnyProtocol.Tests/AnyProtocol.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Encoder.Compression.Tests/AnyProtocol.Encoder.Compression.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Encoder.MessagePack.Tests/AnyProtocol.Encoder.MessagePack.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Encoder.Protobuf.Tests/AnyProtocol.Encoder.Protobuf.Tests.csproj" />
     <Project Path="tests/OrderSystem.MultiProtocol.Tests/OrderSystem.MultiProtocol.Tests.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
