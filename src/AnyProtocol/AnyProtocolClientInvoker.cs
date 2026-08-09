@@ -134,7 +134,7 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
         var outcome = "cancelled";
         try
         {
-            var stream = transport is INativeStreamingTransport streamingTransport
+            var stream = transport is IStreamingTransport streamingTransport
                 ? streamingTransport.StreamAsync(method.Channel, envelope, cancellationToken)
                 : _streamEngines.GetOrAdd(transport, static value => new StreamEngine(value))
                     .StreamAsync(method.Channel, envelope, registration.Timeout, cancellationToken);
@@ -310,7 +310,13 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
             }
             else
             {
-                await transport.SendAsync(context.Channel, envelope, context.CancellationToken)
+                if (transport is not ISendTransport sendTransport)
+                {
+                    throw new InvalidOperationException(
+                        $"Transport '{registration.TransportName}' does not implement ISendTransport.");
+                }
+
+                await sendTransport.SendAsync(context.Channel, envelope, context.CancellationToken)
                     .ConfigureAwait(false);
             }
 

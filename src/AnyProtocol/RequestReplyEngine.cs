@@ -102,7 +102,7 @@ public sealed class RequestReplyEngine : IAsyncDisposable
             }
         }
 
-        if (_transport is INativeRequestReplyTransport nativeTransport)
+        if (_transport is IRequestReplyTransport nativeTransport)
         {
             try
             {
@@ -136,7 +136,10 @@ public sealed class RequestReplyEngine : IAsyncDisposable
         {
             await StartAndRegisterAsync(messageId, completion, operationCancellation.Token)
                 .ConfigureAwait(false);
-            await _transport.SendAsync(
+            var sendTransport = _transport as ISendTransport ??
+                throw new InvalidOperationException(
+                    "Request/reply emulation requires an ISendTransport implementation.");
+            await sendTransport.SendAsync(
                     channel,
                     new TransportEnvelope(headers, request.Body),
                     operationCancellation.Token)
@@ -170,7 +173,10 @@ public sealed class RequestReplyEngine : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        return _transport.SendAsync(channel, envelope, cancellationToken);
+        return (_transport as ISendTransport ??
+                throw new InvalidOperationException(
+                    "Publishing requires an ISendTransport implementation."))
+            .SendAsync(channel, envelope, cancellationToken);
     }
 
     /// <summary>
@@ -226,7 +232,10 @@ public sealed class RequestReplyEngine : IAsyncDisposable
                 Volatile.Write(ref _state, (int)EngineState.Starting);
                 try
                 {
-                    _replySubscription = await _transport.SubscribeAsync(
+                    var subscriptionTransport = _transport as ISubscriptionTransport ??
+                        throw new InvalidOperationException(
+                            "Request/reply emulation requires an ISubscriptionTransport implementation.");
+                    _replySubscription = await subscriptionTransport.SubscribeAsync(
                             _replyChannel,
                             HandleReplyAsync,
                             cancellationToken: cancellationToken)

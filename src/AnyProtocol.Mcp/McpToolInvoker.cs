@@ -179,7 +179,7 @@ public sealed class McpToolInvoker
         return document.RootElement.Clone();
     }
 
-    private sealed class CaptureProtocol : IMessagingProtocol
+    private sealed class CaptureProtocol : ISendTransport
     {
         public TransportEnvelope? Response { get; private set; }
 
@@ -199,13 +199,6 @@ public sealed class McpToolInvoker
             Response = envelope;
             return ValueTask.CompletedTask;
         }
-
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
-            string channel,
-            Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-            SubscriptionOptions? options = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

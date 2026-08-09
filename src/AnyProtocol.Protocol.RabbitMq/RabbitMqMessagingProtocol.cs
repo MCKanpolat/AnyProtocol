@@ -9,7 +9,8 @@ namespace AnyProtocol.Protocol.RabbitMq;
 /// Implements rabbit mq messaging messaging transport operations.
 /// </summary>
 public sealed class RabbitMqMessagingProtocol :
-    IMessagingProtocol,
+    ISendTransport,
+    ISubscriptionTransport,
     IDeadLetterTransport,
     ITransportReadiness
 {

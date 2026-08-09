@@ -3,7 +3,9 @@ using AnyProtocol.Abstraction;
 namespace AnyProtocol.Protocol.Abstraction;
 
 /// <summary>
-/// Defines operations for messaging.
+/// Defines the common lifecycle and capability metadata for a messaging transport.
+/// Operation-specific contracts are exposed through capability interfaces such as
+/// <see cref="ISendTransport"/> and <see cref="ISubscriptionTransport"/>.
 /// </summary>
 public interface IMessagingProtocol : IAsyncDisposable
 {
@@ -20,29 +22,4 @@ public interface IMessagingProtocol : IAsyncDisposable
     /// </summary>
     TransportSemantics Semantics => TransportSemantics.FromCapabilities(Capabilities);
 
-    /// <summary>
-    /// Sends a transport envelope to the specified logical channel.
-    /// </summary>
-    /// <param name="channel">The logical message channel.</param>
-    /// <param name="envelope">The transport envelope to process.</param>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    ValueTask SendAsync(
-        string channel,
-        TransportEnvelope envelope,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Subscribes a handler to envelopes received from the specified logical channel.
-    /// </summary>
-    /// <param name="channel">The logical message channel.</param>
-    /// <param name="handler">The callback invoked for each received message.</param>
-    /// <param name="options">The options that control the operation.</param>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
-    /// <returns>A task whose result contains the value produced by the operation.</returns>
-    ValueTask<IAsyncDisposable> SubscribeAsync(
-        string channel,
-        Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-        SubscriptionOptions? options = null,
-        CancellationToken cancellationToken = default);
 }

@@ -727,7 +727,7 @@ public sealed class HardeningTests
         }
     }
 
-    private sealed class TestTransport : IMessagingProtocol
+    private sealed class TestTransport : ISendTransport, ISubscriptionTransport
     {
         private readonly TransportSemantics? _semantics;
         private int _subscribeCount;
@@ -795,7 +795,7 @@ public sealed class HardeningTests
 
     private sealed class ReplyingTransport(
         bool duplicateResponses,
-        bool failFirstDisposal = false) : IMessagingProtocol
+        bool failFirstDisposal = false) : ISendTransport, ISubscriptionTransport
     {
         private Func<TransportEnvelope, CancellationToken, ValueTask>? _handler;
         private int _subscribeCount;
@@ -847,7 +847,7 @@ public sealed class HardeningTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class PendingTransport : IMessagingProtocol
+    private sealed class PendingTransport : ISendTransport, ISubscriptionTransport
     {
         public TaskCompletionSource SendObserved { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -873,7 +873,7 @@ public sealed class HardeningTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class BlockingSubscribeTransport : IMessagingProtocol
+    private sealed class BlockingSubscribeTransport : ISendTransport, ISubscriptionTransport
     {
         public TaskCompletionSource SubscribeObserved { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

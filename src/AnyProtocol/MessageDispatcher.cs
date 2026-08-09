@@ -564,7 +564,10 @@ public sealed class MessageDispatcher
             ? await _serializer.SerializeAsync<object?>(null, cancellationToken).ConfigureAwait(false)
             : await _serializer.SerializeAsync(response.GetType(), response, cancellationToken)
                 .ConfigureAwait(false);
-        await transport.SendAsync(replyTo, new TransportEnvelope(headers, body), cancellationToken)
+        var sendTransport = transport as ISendTransport ??
+            throw new InvalidOperationException(
+                "Sending a response requires an ISendTransport implementation.");
+        await sendTransport.SendAsync(replyTo, new TransportEnvelope(headers, body), cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -602,7 +605,10 @@ public sealed class MessageDispatcher
         var body = await _serializer.SerializeAsync(fault, cancellationToken).ConfigureAwait(false);
         try
         {
-            await transport.SendAsync(
+            var sendTransport = transport as ISendTransport ??
+                throw new InvalidOperationException(
+                    "Sending a fault requires an ISendTransport implementation.");
+            await sendTransport.SendAsync(
                     replyTo,
                     new TransportEnvelope(CreateResponseHeaders(request, MessageType.Fault), body),
                     cancellationToken)

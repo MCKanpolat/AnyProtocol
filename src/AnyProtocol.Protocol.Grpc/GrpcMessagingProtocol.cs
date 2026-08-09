@@ -11,9 +11,9 @@ namespace AnyProtocol.Protocol.Grpc;
 /// Implements grpc messaging messaging transport operations.
 /// </summary>
 public sealed class GrpcMessagingProtocol :
-    IMessagingProtocol,
-    INativeRequestReplyTransport,
-    INativeStreamingTransport,
+    ISendTransport,
+    IRequestReplyTransport,
+    IStreamingTransport,
     ITransportReadiness
 {
     private readonly CallInvoker _callInvoker;
@@ -225,21 +225,6 @@ public sealed class GrpcMessagingProtocol :
             call?.Dispose();
         }
     }
-
-    /// <summary>
-    /// Subscribes a handler to envelopes received from the specified logical channel.
-    /// </summary>
-    /// <param name="channel">The logical message channel.</param>
-    /// <param name="handler">The callback invoked for each received message.</param>
-    /// <param name="options">The options that control the operation.</param>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
-    /// <returns>A task whose result contains the subscribe async.</returns>
-    public ValueTask<IAsyncDisposable> SubscribeAsync(
-        string channel,
-        Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-        SubscriptionOptions? options = null,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("gRPC client transport does not support subscriptions.");
 
     /// <summary>
     /// Asynchronously releases resources owned by this instance.

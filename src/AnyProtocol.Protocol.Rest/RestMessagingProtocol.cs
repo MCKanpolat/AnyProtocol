@@ -11,8 +11,8 @@ namespace AnyProtocol.Protocol.Rest;
 /// Implements rest messaging messaging transport operations.
 /// </summary>
 public sealed class RestMessagingProtocol :
-    IMessagingProtocol,
-    INativeRequestReplyTransport,
+    ISendTransport,
+    IRequestReplyTransport,
     IMethodAwareMessagingProtocol,
     IMethodAwareRequestReplyTransport
 {
@@ -238,21 +238,6 @@ public sealed class RestMessagingProtocol :
         headers[HeaderNames.MessageType] ??= MessageType.Response.ToString();
         return new TransportEnvelope(headers, body);
     }
-
-    /// <summary>
-    /// Subscribes a handler to envelopes received from the specified logical channel.
-    /// </summary>
-    /// <param name="channel">The logical message channel.</param>
-    /// <param name="handler">The callback invoked for each received message.</param>
-    /// <param name="options">The options that control the operation.</param>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
-    /// <returns>A task whose result contains the subscribe async.</returns>
-    public ValueTask<IAsyncDisposable> SubscribeAsync(
-        string channel,
-        Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-        SubscriptionOptions? options = null,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("REST client transport does not support subscriptions.");
 
     /// <summary>
     /// Asynchronously releases resources owned by this instance.

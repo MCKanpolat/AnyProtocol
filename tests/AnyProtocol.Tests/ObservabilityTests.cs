@@ -368,7 +368,7 @@ public sealed class ObservabilityTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class TimeoutTransport : IMessagingProtocol, INativeRequestReplyTransport
+    private sealed class TimeoutTransport : INativeRequestReplyTransport
     {
         public TransportCapabilities Capabilities =>
             TransportCapabilities.NativeRequestReply |
@@ -398,7 +398,6 @@ public sealed class ObservabilityTests
     }
 
     private sealed class CancellationTransport(CancellationTokenSource cancellation) :
-        IMessagingProtocol,
         INativeRequestReplyTransport
     {
         public TransportCapabilities Capabilities =>

@@ -227,8 +227,14 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
         foreach (var routeGroup in routes)
         {
             var transport = _transports.GetRequired(routeGroup.Key.Protocol);
+            var subscriptionTransport = transport as ISubscriptionTransport ??
+                throw new InvalidOperationException(
+                    $"Transport '{routeGroup.Key.Protocol}' does not implement ISubscriptionTransport.");
+            var sendTransport = transport as ISendTransport ??
+                throw new InvalidOperationException(
+                    $"Transport '{routeGroup.Key.Protocol}' does not implement ISendTransport.");
             var routeTable = routeGroup.ToArray();
-            var subscription = await transport.SubscribeAsync(
+            var subscription = await subscriptionTransport.SubscribeAsync(
                     routeGroup.Key.Channel,
                     async (envelope, token) =>
                     {
@@ -275,7 +281,7 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
                                                        route.Protocol)
                                                    .ConfigureAwait(false))
                                 {
-                                    await transport.SendAsync(replyTo, response, dispatchToken)
+                                    await sendTransport.SendAsync(replyTo, response, dispatchToken)
                                         .ConfigureAwait(false);
                                 }
                             }
@@ -323,7 +329,10 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
                 continue;
             }
 
-            var subscription = await transport.SubscribeAsync(
+            var subscriptionTransport = transport as ISubscriptionTransport ??
+                throw new InvalidOperationException(
+                    $"Transport '{registration.TransportName}' does not implement ISubscriptionTransport.");
+            var subscription = await subscriptionTransport.SubscribeAsync(
                     registration.Channel,
                     (envelope, token) =>
                     {

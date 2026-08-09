@@ -102,6 +102,14 @@ public static class ServiceProviderExtensions
         foreach (var eventRegistration in configuration.EventRegistrations)
         {
             services.AddScoped(eventRegistration.HandlerType);
+            var eventTransport = configuration.RegisteredTransports[eventRegistration.Protocol];
+            if (eventTransport is not ISendTransport)
+            {
+                // Native server transports receive events through their host endpoint and
+                // intentionally do not expose a publisher capability.
+                continue;
+            }
+
             var publisherService = typeof(IEventPublisher<>).MakeGenericType(eventRegistration.EventType);
             var publisherType = typeof(EventPublisher<>).MakeGenericType(eventRegistration.EventType);
             services.AddSingleton(
@@ -109,7 +117,7 @@ public static class ServiceProviderExtensions
                 provider => Activator.CreateInstance(
                     publisherType,
                     provider.GetRequiredService<TransportRegistry>()
-                        .GetRequired(eventRegistration.TransportName),
+                        .GetRequired(eventRegistration.TransportName) as ISendTransport,
                     provider.GetRequiredService<IMessageSerializer>(),
                     eventRegistration.Channel,
                     eventRegistration.TransportName)!);

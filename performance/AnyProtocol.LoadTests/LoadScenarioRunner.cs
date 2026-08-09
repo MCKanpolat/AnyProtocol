@@ -14,6 +14,10 @@ public sealed class LoadScenarioRunner
     {
         options.Validate();
         await using var transport = await factory.CreateAsync(cancellationToken);
+        var sender = transport as ISendTransport ??
+            throw new InvalidOperationException("Load transports must implement ISendTransport.");
+        var subscriber = transport as ISubscriptionTransport ??
+            throw new InvalidOperationException("Load transports must implement ISubscriptionTransport.");
         var pending = new ConcurrentDictionary<string, TaskCompletionSource>();
         var subscriptions = new List<IAsyncDisposable>();
         RequestReplyEngine? requestReply = null;
@@ -22,7 +26,7 @@ public sealed class LoadScenarioRunner
             var channel = $"performance.{options.Scenario}";
             if (options.Scenario == "request-reply")
             {
-                subscriptions.Add(await transport.SubscribeAsync(
+                subscriptions.Add(await subscriber.SubscribeAsync(
                     channel,
                     async (request, token) =>
                     {
@@ -31,7 +35,7 @@ public sealed class LoadScenarioRunner
                             [HeaderNames.CorrelationId] = request.Headers[HeaderNames.CorrelationId],
                             [HeaderNames.MessageType] = MessageType.Response.ToString()
                         };
-                        await transport.SendAsync(
+                        await sender.SendAsync(
                             request.Headers[HeaderNames.ReplyTo]!,
                             new TransportEnvelope(headers, request.Body),
                             token);
@@ -56,18 +60,18 @@ public sealed class LoadScenarioRunner
                 var subscriptionOptions = options.Scenario == "competing-consumers"
                     ? new SubscriptionOptions { ConsumerGroup = "performance-workers", MaxConcurrency = options.Concurrency }
                     : new SubscriptionOptions { MaxConcurrency = options.Concurrency };
-                subscriptions.Add(await transport.SubscribeAsync(channel, Handle, subscriptionOptions, cancellationToken));
+                subscriptions.Add(await subscriber.SubscribeAsync(channel, Handle, subscriptionOptions, cancellationToken));
                 if (options.Scenario == "competing-consumers")
                 {
-                    subscriptions.Add(await transport.SubscribeAsync(channel, Handle, subscriptionOptions, cancellationToken));
+                    subscriptions.Add(await subscriber.SubscribeAsync(channel, Handle, subscriptionOptions, cancellationToken));
                 }
             }
 
             var payload = CreatePayload(options.PayloadBytes);
-            await ExecuteAsync(channel, payload, transport, requestReply, pending, options.OperationTimeout, cancellationToken);
+            await ExecuteAsync(channel, payload, sender, transport, requestReply, pending, options.OperationTimeout, cancellationToken);
             for (var index = 0; index < options.WarmupOperations; index++)
             {
-                await ExecuteAsync(channel, payload, transport, requestReply, pending, options.OperationTimeout, cancellationToken);
+                await ExecuteAsync(channel, payload, sender, transport, requestReply, pending, options.OperationTimeout, cancellationToken);
             }
 
             var recorder = new LatencyRecorder();
@@ -92,7 +96,7 @@ public sealed class LoadScenarioRunner
                     var started = Stopwatch.GetTimestamp();
                     try
                     {
-                        await ExecuteAsync(channel, payload, transport, requestReply, pending, options.OperationTimeout, cancellationToken);
+                        await ExecuteAsync(channel, payload, sender, transport, requestReply, pending, options.OperationTimeout, cancellationToken);
                         recorder.Record(Stopwatch.GetElapsedTime(started));
                     }
                     catch (TimeoutException)
@@ -150,6 +154,7 @@ public sealed class LoadScenarioRunner
     private static async Task ExecuteAsync(
         string channel,
         byte[] payload,
+        ISendTransport sender,
         IMessagingProtocol transport,
         RequestReplyEngine? requestReply,
         ConcurrentDictionary<string, TaskCompletionSource> pending,
@@ -183,7 +188,7 @@ public sealed class LoadScenarioRunner
 
         try
         {
-            await transport.SendAsync(
+            await sender.SendAsync(
                 channel,
                 new TransportEnvelope(new MessageHeaders { [HeaderNames.MessageId] = id }, payload),
                 operationCancellationToken);
