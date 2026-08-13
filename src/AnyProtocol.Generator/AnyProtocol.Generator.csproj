@@ -7,6 +7,7 @@
         <IsRoslynComponent>true</IsRoslynComponent>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <IncludeBuildOutput>false</IncludeBuildOutput>
+        <IncludeSymbols>false</IncludeSymbols>
         <DevelopmentDependency>true</DevelopmentDependency>
         <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     </PropertyGroup>
@@ -26,7 +27,9 @@
               PackagePath="analyzers/dotnet/cs" />
     </ItemGroup>
 
-    <Target Name="BuildCodeFixesForPack" BeforeTargets="GenerateNuspec">
+    <Target Name="BuildCodeFixesForPack"
+            BeforeTargets="GenerateNuspec"
+            Condition="'$(NoBuild)' != 'true'">
         <MSBuild Projects="$(MSBuildProjectDirectory)\..\AnyProtocol.Generator.CodeFixes\AnyProtocol.Generator.CodeFixes.csproj"
                  Targets="Build"
                  Properties="Configuration=$(Configuration)" />

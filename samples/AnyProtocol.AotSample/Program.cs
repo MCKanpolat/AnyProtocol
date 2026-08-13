@@ -7,6 +7,7 @@ using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
 using AnyProtocol.DependencyInjection.Abstraction;
 using AnyProtocol.Mcp;
+using AnyProtocol.Services;
 using AnyProtocol.Protocol.Abstraction;
 using AnyProtocol.Protocol.InMemory;
 using AnyProtocol.Serializer.TextJson;
@@ -43,6 +44,11 @@ Require(
         typeof(IGreetingService),
         nameof(IGreetingService.StreamAsync)),
     "Generated streaming server dispatch was not registered.");
+Require(
+    GeneratedEventDispatchRegistry.IsRegistered(
+        typeof(GreetingPublished),
+        typeof(GreetingPublishedHandler)),
+    "Generated event dispatch was not registered.");
 
 var serializableTypes = GeneratedContractMetadataRegistry.GetSerializableTypes(
     typeof(IGreetingService));
@@ -90,10 +96,10 @@ var configuration = new LinkBuilder()
     .AddServer<IGreetingService, GreetingService>(server => server.UseProtocols(
         ProtocolKey.Default,
         ProtocolKey.Mcp))
+    .AddEventHandler<GreetingPublished, GreetingPublishedHandler>()
     .Build(descriptorFactory);
 var catalog = new McpToolCatalog(
     configuration,
-    descriptorFactory,
     SampleJsonContext.Default.Options);
 var tool = catalog.GetRequired("greeting_greet");
 Require(tool.Idempotent, "MCP discovery did not preserve idempotency.");
@@ -105,9 +111,14 @@ Require(
     "MCP output schema discovery failed.");
 
 var service = new GreetingService();
+var eventHandler = new GreetingPublishedHandler();
+var resolverFactory = new StaticResolverFactory(
+    (typeof(GreetingService), service),
+    (typeof(GreetingPublishedHandler), eventHandler));
 var dispatcher = new MessageDispatcher(
-    new StaticResolverFactory(typeof(GreetingService), service),
-    serializer);
+    resolverFactory,
+    serializer,
+    envelopeFactory: DefaultMessageEnvelopeFactory.CreateDefault());
 var registration = configuration.ServerRegistrations.Single();
 const string replyChannel = "_sample.reply";
 var serverCapture = new CaptureProtocol(replyChannel);
@@ -157,7 +168,8 @@ var mcpInvoker = new McpToolInvoker(
     catalog,
     dispatcher,
     serializer,
-    new EmptyMcpCredentialProvider());
+    new EmptyMcpCredentialProvider(),
+    DefaultMessageEnvelopeFactory.CreateDefault());
 var mcpResult = await mcpInvoker.InvokeAsync(
     "greeting_greet",
     new Dictionary<string, JsonElement>
@@ -178,6 +190,26 @@ var mcpFault = await mcpInvoker.InvokeAsync(
 Require(
     mcpFault.IsError && mcpFault.ErrorCode == "sample_fault",
     "MCP tool fault did not execute through the dispatcher.");
+
+var admission = new RequestAdmissionCoordinator();
+await using var bus = new AnyProtocolBus(
+    configuration,
+    new TransportRegistry(
+        [new KeyValuePair<ProtocolKey, IMessagingProtocol>(ProtocolKey.Default, transport)]),
+    dispatcher,
+    admission);
+await bus.StartAsync();
+var eventRegistration = configuration.EventRegistrations.Single();
+var publisher = new EventPublisher<GreetingPublished>(
+    transport,
+    serializer,
+    eventRegistration.Channel,
+    eventRegistration.Protocol.Value,
+    new OutboundOperationExecutor(resolverFactory, admission));
+var published = new GreetingPublished(Guid.NewGuid(), "Native AOT event");
+await publisher.PublishAsync(published);
+var consumed = await eventHandler.Received.WaitAsync(TimeSpan.FromSeconds(5));
+Require(consumed == published, "Generated event publish/consume dispatch failed.");
 
 Console.WriteLine("AnyProtocol Native AOT smoke test passed.");
 
@@ -225,6 +257,8 @@ public sealed record GreetingRequest(string Name);
 public sealed record GreetingResponse(string Message);
 
 public sealed record GreetingFault(string Code, string Message);
+
+public sealed record GreetingPublished(Guid Id, string Name);
 
 public interface IGreetingService
 {
@@ -274,9 +308,24 @@ public sealed class GreetingService : IGreetingService
     }
 }
 
+public sealed class GreetingPublishedHandler : IEventConsumer<GreetingPublished>
+{
+    private readonly TaskCompletionSource<GreetingPublished> _received = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task<GreetingPublished> Received => _received.Task;
+
+    public ValueTask ConsumeAsync(GreetingPublished @event)
+    {
+        _received.TrySetResult(@event);
+        return ValueTask.CompletedTask;
+    }
+}
+
 [JsonSerializable(typeof(GreetingRequest))]
 [JsonSerializable(typeof(GreetingResponse))]
 [JsonSerializable(typeof(GreetingFault))]
+[JsonSerializable(typeof(GreetingPublished))]
 [JsonSerializable(typeof(FaultMessage))]
 [JsonSerializable(typeof(Unit))]
 [JsonSerializable(typeof(object))]
@@ -315,20 +364,28 @@ internal sealed class GreetingInvoker : IClientInvoker
     }
 }
 
-internal sealed class StaticResolverFactory(Type serviceType, object service)
-    : IDependencyResolverFactory
+internal sealed class StaticResolverFactory : IDependencyResolverFactory
 {
-    public IDependencyResolver CreateResolver() => new Resolver(serviceType, service);
+    private readonly IReadOnlyDictionary<Type, object> _services;
+
+    public StaticResolverFactory(params (Type ServiceType, object Instance)[] services)
+    {
+        _services = services.ToDictionary(
+            static service => service.ServiceType,
+            static service => service.Instance);
+    }
+
+    public IDependencyResolver CreateResolver() => new Resolver(_services);
 
     public IAsyncDependencyScope CreateAsyncScope() => new Scope(CreateResolver());
 
-    private sealed class Resolver(Type serviceType, object service) : IDependencyResolver
+    private sealed class Resolver(IReadOnlyDictionary<Type, object> services) : IDependencyResolver
     {
         public TService? Resolve<TService>() where TService : class
             => Resolve(typeof(TService)) as TService;
 
         public object? Resolve(Type requestedType)
-            => requestedType == serviceType ? service : null;
+            => services.GetValueOrDefault(requestedType);
 
         public IEnumerable<TService> ResolveAll<TService>() where TService : class
             => Resolve<TService>() is { } resolved ? [resolved] : [];

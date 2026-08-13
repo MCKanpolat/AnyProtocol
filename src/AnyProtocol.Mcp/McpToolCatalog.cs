@@ -1,13 +1,10 @@
-using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
 using System.Text.Json.Serialization.Metadata;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
-using AnyProtocol.Protocol.Abstraction;
 
 namespace AnyProtocol.Mcp;
 
@@ -21,16 +18,13 @@ public sealed class McpToolCatalog
     /// <summary>
     /// Initializes a new instance of the McpToolCatalog class.
     /// </summary>
-    /// <param name="configuration">The configuration.</param>
-    /// <param name="descriptorFactory">The descriptor factory.</param>
+    /// <param name="runtimePlan">The immutable runtime plan.</param>
     /// <param name="serializerOptions">The serializer options.</param>
     public McpToolCatalog(
-        LinkConfiguration configuration,
-        ContractDescriptorFactory descriptorFactory,
+        RuntimePlan runtimePlan,
         JsonSerializerOptions? serializerOptions = null)
     {
-        ArgumentNullException.ThrowIfNull(configuration);
-        ArgumentNullException.ThrowIfNull(descriptorFactory);
+        ArgumentNullException.ThrowIfNull(runtimePlan);
         SerializerOptions = serializerOptions is null
             ? new JsonSerializerOptions(JsonSerializerDefaults.Web)
             : new JsonSerializerOptions(serializerOptions);
@@ -47,44 +41,29 @@ public sealed class McpToolCatalog
         }
 
         var tools = new List<McpToolDescriptor>();
-        foreach (var registration in configuration.ServerRegistrations
-                     .Where(static registration =>
-                         registration.Protocols.Contains(ProtocolKey.Mcp)))
+        foreach (var plan in runtimePlan.McpToolPlans)
         {
-            var contract = descriptorFactory.CreateRuntimeCompatible(registration.ContractType);
-            foreach (var method in contract.Methods)
+            if (plan.Method.Operation == ContractOperation.Stream)
             {
-                var attribute = method.Method.GetCustomAttribute<McpToolAttribute>();
-                if (attribute is null)
-                {
-                    continue;
-                }
-
-                if (method.Operation == ContractOperation.Stream)
-                {
-                    throw new InvalidOperationException(
-                        $"MCP tool '{method.ContractName}.{method.MethodName}' cannot use server streaming.");
-                }
-
-                var name = string.IsNullOrWhiteSpace(attribute.Name)
-                    ? GetDefaultName(registration.ContractType, method.MethodName)
-                    : attribute.Name;
-                ValidateName(name!);
-                tools.Add(
-                    new McpToolDescriptor(
-                        name!,
-                        attribute.Description,
-                        attribute.ReadOnly,
-                        attribute.Destructive,
-                        attribute.Idempotent,
-                        attribute.OpenWorld,
-                        CreateInputSchema(method.RequestType),
-                        method.ResponseType is null
-                            ? null
-                            : CreateOutputSchema(method.ResponseType),
-                        registration,
-                        method));
+                throw new InvalidOperationException(
+                    $"MCP tool '{plan.Method.ContractName}.{plan.Method.MethodName}' cannot use server streaming.");
             }
+
+            ValidateName(plan.Name);
+            tools.Add(
+                new McpToolDescriptor(
+                    plan.Name,
+                    plan.Description,
+                    plan.ReadOnly,
+                    plan.Destructive,
+                    plan.Method.IsIdempotent,
+                    plan.OpenWorld,
+                    CreateInputSchema(plan.Method.RequestType),
+                    plan.Method.ResponseType is null
+                        ? null
+                        : CreateOutputSchema(plan.Method.ResponseType),
+                    plan.Registration,
+                    plan.Method));
         }
 
         var duplicate = tools.GroupBy(static tool => tool.Name, StringComparer.Ordinal)
@@ -215,41 +194,4 @@ public sealed class McpToolCatalog
         }
     }
 
-    private static string GetDefaultName(Type contractType, string methodName)
-    {
-        var contractName = contractType.Name;
-        if (contractName.Length > 1 &&
-            contractName[0] == 'I' &&
-            char.IsUpper(contractName[1]))
-        {
-            contractName = contractName[1..];
-        }
-
-        if (methodName.EndsWith("Async", StringComparison.Ordinal))
-        {
-            methodName = methodName[..^5];
-        }
-
-        return $"{ToSnakeCase(contractName)}_{ToSnakeCase(methodName)}";
-    }
-
-    private static string ToSnakeCase(string value)
-    {
-        var builder = new StringBuilder(value.Length + 8);
-        for (var index = 0; index < value.Length; index++)
-        {
-            var character = value[index];
-            if (char.IsUpper(character) &&
-                index > 0 &&
-                (!char.IsUpper(value[index - 1]) ||
-                 index + 1 < value.Length && char.IsLower(value[index + 1])))
-            {
-                builder.Append('_');
-            }
-
-            builder.Append(char.ToLowerInvariant(character));
-        }
-
-        return builder.ToString();
-    }
 }

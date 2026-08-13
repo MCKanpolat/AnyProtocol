@@ -6,8 +6,8 @@ namespace AnyProtocol.Abstraction;
 public interface IDateTimeProvider
 {
     /// <summary>
-    /// Gets now.
+    /// Gets the current UTC time.
     /// </summary>
     /// <returns>The value produced by the operation.</returns>
-    DateTime GetNow();
+    DateTimeOffset GetUtcNow();
 }

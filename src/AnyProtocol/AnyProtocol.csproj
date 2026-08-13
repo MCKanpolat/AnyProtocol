@@ -1,19 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
         <RootNamespace>AnyProtocol</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\AnyProtocol.Abstraction\AnyProtocol.Abstraction.csproj" />
-      <ProjectReference Include="..\AnyProtocol.Authorization.Abstraction\AnyProtocol.Authorization.Abstraction.csproj" />
       <ProjectReference Include="..\AnyProtocol.DependencyInjection.Abstraction\AnyProtocol.DependencyInjection.Abstraction.csproj" />
       <ProjectReference Include="..\AnyProtocol.Encoder.Abstraction\AnyProtocol.Encoder.Abstraction.csproj" />
       <ProjectReference Include="..\AnyProtocol.Logging.Abstraction\AnyProtocol.Logging.Abstraction.csproj" />
       <ProjectReference Include="..\AnyProtocol.Protocol.Abstraction\AnyProtocol.Protocol.Abstraction.csproj" />
       <ProjectReference Include="..\AnyProtocol.Serializer.Abstraction\AnyProtocol.Serializer.Abstraction.csproj" />
-      <ProjectReference Include="..\AnyProtocol.Validation.Abstraction\AnyProtocol.Validation.Abstraction.csproj" />
+      <ProjectReference Include="..\AnyProtocol.Storage.Abstraction\AnyProtocol.Storage.Abstraction.csproj" />
     </ItemGroup>
 
     <ItemGroup>

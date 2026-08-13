@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
+using AnyProtocol.Services;
 
 namespace AnyProtocol;
 
@@ -21,12 +22,13 @@ public sealed class StreamEngine : IAsyncDisposable
     }
 
     private readonly IMessagingProtocol _transport;
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
     private readonly int _capacity;
     private readonly ConcurrentDictionary<string, Channel<TransportEnvelope>> _pending = new();
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly string _replyChannel = $"_anyprotocol.stream.{Guid.NewGuid():N}";
-    private IAsyncDisposable? _replySubscription;
+    private ITransportSubscription? _replySubscription;
     private int _state;
 
     /// <summary>
@@ -34,7 +36,11 @@ public sealed class StreamEngine : IAsyncDisposable
     /// </summary>
     /// <param name="transport">The transport.</param>
     /// <param name="capacity">The capacity.</param>
-    public StreamEngine(IMessagingProtocol transport, int capacity = 32)
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    public StreamEngine(
+        IMessagingProtocol transport,
+        int capacity = 32,
+        IMessageEnvelopeFactory? envelopeFactory = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         if (capacity <= 0)
@@ -43,6 +49,7 @@ public sealed class StreamEngine : IAsyncDisposable
         }
 
         _capacity = capacity;
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
     }
 
     /// <summary>
@@ -67,7 +74,19 @@ public sealed class StreamEngine : IAsyncDisposable
         }
 
         ThrowIfDisposed();
-        var messageId = Guid.NewGuid().ToString("N");
+        var headers = _envelopeFactory.CreateOutboundHeaders(
+            MessageType.Request,
+            channel,
+            request.Headers[HeaderNames.Contract],
+            request.Headers[HeaderNames.Method],
+            request.Headers[HeaderNames.ContentType],
+            request.Headers,
+            replyTo: _replyChannel);
+        var messageId = headers[HeaderNames.MessageId]!;
+        if (string.IsNullOrWhiteSpace(headers[HeaderNames.CorrelationId]))
+        {
+            headers[HeaderNames.CorrelationId] = messageId;
+        }
         var responses = Channel.CreateBounded<TransportEnvelope>(
             new BoundedChannelOptions(_capacity)
             {
@@ -96,15 +115,6 @@ public sealed class StreamEngine : IAsyncDisposable
         {
             throw new TimeoutException($"Stream '{channel}' did not start within {timeout}.");
         }
-
-        var headers = new MessageHeaders(request.Headers)
-        {
-            [HeaderNames.MessageId] = messageId,
-            [HeaderNames.CorrelationId] = messageId,
-            [HeaderNames.ReplyTo] = _replyChannel,
-            [HeaderNames.Channel] = channel,
-            [HeaderNames.MessageType] = MessageType.Request.ToString()
-        };
 
         try
         {

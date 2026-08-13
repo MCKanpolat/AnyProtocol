@@ -8,7 +8,7 @@ public interface IErrorHandler
     /// <summary>
     /// Handles async.
     /// </summary>
-    /// <param name="context">The context for the current operation.</param>
+    /// <param name="context">The error context for the failed operation.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    ValueTask HandleAsync(IMessageContext context);
+    ValueTask HandleAsync(ErrorContext context);
 }

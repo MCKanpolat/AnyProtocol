@@ -1,4 +1,5 @@
 using Testcontainers.RabbitMq;
+using AnyProtocol.Tests.Shared;
 
 namespace AnyProtocol.Protocol.RabbitMq.Tests;
 
@@ -14,6 +15,8 @@ public sealed class RabbitMqFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        var requireBrokerTests = BrokerTestMode.RequireBrokerTests();
+
         try
         {
             _container = new RabbitMqBuilder("rabbitmq:4.1-management").Build();
@@ -21,6 +24,14 @@ public sealed class RabbitMqFixture : IAsyncLifetime
         }
         catch (Exception exception)
         {
+            if (requireBrokerTests)
+            {
+                throw new InvalidOperationException(
+                    "RabbitMQ Testcontainer startup failed while broker tests are required. " +
+                    $"Set {BrokerTestMode.RequireBrokerTestsEnvironmentVariable}=false for optional local broker tests.",
+                    exception);
+            }
+
             UnavailableReason = $"RabbitMQ Testcontainer is unavailable: {exception.Message}";
         }
     }

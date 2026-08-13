@@ -7,10 +7,12 @@
           "files": [
             "src/AnyProtocol/bin/Release/net10.0/AnyProtocol.dll",
             "src/AnyProtocol.Abstraction/bin/Release/net10.0/AnyProtocol.Abstraction.dll",
-            "src/AnyProtocol.Authorization.Abstraction/bin/Release/net10.0/AnyProtocol.Authorization.Abstraction.dll",
             "src/AnyProtocol.DependencyInjection.Abstraction/bin/Release/net10.0/AnyProtocol.DependencyInjection.Abstraction.dll",
             "src/AnyProtocol.DependencyInjection.Microsoft/bin/Release/net10.0/AnyProtocol.DependencyInjection.Microsoft.dll",
             "src/AnyProtocol.Encoder.Abstraction/bin/Release/net10.0/AnyProtocol.Encoder.Abstraction.dll",
+            "src/AnyProtocol.Encoder.Compression/bin/Release/net10.0/AnyProtocol.Encoder.Compression.dll",
+            "src/AnyProtocol.Encoder.MessagePack/bin/Release/net10.0/AnyProtocol.Encoder.MessagePack.dll",
+            "src/AnyProtocol.Encoder.Protobuf/bin/Release/net10.0/AnyProtocol.Encoder.Protobuf.dll",
             "src/AnyProtocol.Logging.Abstraction/bin/Release/net10.0/AnyProtocol.Logging.Abstraction.dll",
             "src/AnyProtocol.Logging.Microsoft/bin/Release/net10.0/AnyProtocol.Logging.Microsoft.dll",
             "src/AnyProtocol.Mcp/bin/Release/net10.0/AnyProtocol.Mcp.dll",
@@ -25,13 +27,11 @@
             "src/AnyProtocol.Protocol.Rest/bin/Release/net10.0/AnyProtocol.Protocol.Rest.dll",
             "src/AnyProtocol.Protocol.Rest.AspNetCore/bin/Release/net10.0/AnyProtocol.Protocol.Rest.AspNetCore.dll",
             "src/AnyProtocol.Protocol.ZeroMq/bin/Release/net10.0/AnyProtocol.Protocol.ZeroMq.dll",
-            "src/AnyProtocol.SchemaRegistry.Abstraction/bin/Release/net10.0/AnyProtocol.SchemaRegistry.Abstraction.dll",
             "src/AnyProtocol.Serializer.Abstraction/bin/Release/net10.0/AnyProtocol.Serializer.Abstraction.dll",
             "src/AnyProtocol.Serializer.MessagePack/bin/Release/net10.0/AnyProtocol.Serializer.MessagePack.dll",
             "src/AnyProtocol.Serializer.TextJson/bin/Release/net10.0/AnyProtocol.Serializer.TextJson.dll",
             "src/AnyProtocol.Storage.Abstraction/bin/Release/net10.0/AnyProtocol.Storage.Abstraction.dll",
-            "src/AnyProtocol.Storage.Redis/bin/Release/net10.0/AnyProtocol.Storage.Redis.dll",
-            "src/AnyProtocol.Validation.Abstraction/bin/Release/net10.0/AnyProtocol.Validation.Abstraction.dll"
+            "src/AnyProtocol.Storage.Redis/bin/Release/net10.0/AnyProtocol.Storage.Redis.dll"
           ]
         }
       ],

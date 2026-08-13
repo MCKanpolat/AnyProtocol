@@ -122,17 +122,18 @@ public sealed class RetryFilter : IMessageFilter
             totalCancellation.CancelAfter(maxTotalTime);
         }
 
-        context.CancellationToken = totalCancellation.Token;
         try
         {
             for (var attempt = 1; ; attempt++)
             {
                 totalCancellation.Token.ThrowIfCancellationRequested();
-                context.Response = null;
-                context.Exception = null;
+                var attemptContext = MessageContextRuntime.WithCancellation(
+                    context,
+                    totalCancellation.Token);
+                MessageContextRuntime.Get(attemptContext).Result.ResetResponse();
                 try
                 {
-                    await next(context).ConfigureAwait(false);
+                    await next(attemptContext).ConfigureAwait(false);
                     return;
                 }
                 catch (Exception exception) when (
@@ -166,10 +167,6 @@ public sealed class RetryFilter : IMessageFilter
         {
             throw new TimeoutException(
                 $"Retry operation exceeded the total time limit of {_options.MaxTotalTime}.");
-        }
-        finally
-        {
-            context.CancellationToken = originalCancellation;
         }
     }
 

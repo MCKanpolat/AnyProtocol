@@ -1,6 +1,6 @@
 # AnyProtocol
 
-AnyProtocol is a .NET 10 contract-first messaging library. Define one interface, register it as a client or server, and carry the same contract over local (InMemory), HTTP (REST), gRPC, Kafka, RabbitMQ, ZeroMQ, or MCP server transports according to each transport's declared capabilities.
+AnyProtocol is a .NET 8 and .NET 10 contract-first messaging library. Define one interface, register it as a client or server, and carry the same contract over local (InMemory), HTTP (REST), gRPC, Kafka, RabbitMQ, ZeroMQ, or MCP server transports according to each transport's declared capabilities.
 
 ![AnyProtocol overview: one contract, any transport](assets/AnyProtocol_overview.png)
 
@@ -27,6 +27,8 @@ Choose the transport that matches the deployment boundary and delivery guarantee
 - [Deployment](DEPLOYMENT.md)
 - [Observability](OBSERVABILITY.md)
 - [Security](SECURITY.md)
+- [Support policy](SUPPORT_POLICY.md)
+- [Architecture](ARCHITECTURE.md)
 - [API reference](xref:AnyProtocol)
 
 AnyProtocol validates selected protocols against contract operations during startup. Review transport semantics before production use: request/reply and streaming may be native or emulated, and delivery, durability, ordering, cancellation, and backpressure guarantees differ by transport.

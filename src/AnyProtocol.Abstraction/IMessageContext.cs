@@ -1,5 +1,3 @@
-using AnyProtocol.DependencyInjection.Abstraction;
-
 namespace AnyProtocol.Abstraction;
 
 /// <summary>
@@ -50,12 +48,6 @@ public interface IMessageContext
     ContractMethodDescriptor? Method { get; set; }
 
     /// <summary>
-    /// Gets the services.
-    /// </summary>
-    /// <value>The services.</value>
-    IDependencyResolver? Services { get; set; }
-
-    /// <summary>
     /// Gets the items.
     /// </summary>
     /// <value>The items.</value>
@@ -65,17 +57,5 @@ public interface IMessageContext
     /// Gets the cancellation token.
     /// </summary>
     /// <value>The cancellation token.</value>
-    CancellationToken CancellationToken { get; set; }
-
-    /// <summary>
-    /// Gets the response.
-    /// </summary>
-    /// <value>The response.</value>
-    TransportEnvelope? Response { get; set; }
-
-    /// <summary>
-    /// Gets the exception.
-    /// </summary>
-    /// <value>The exception.</value>
-    Exception? Exception { get; set; }
+    CancellationToken CancellationToken { get; }
 }

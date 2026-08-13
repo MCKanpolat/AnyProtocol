@@ -37,4 +37,44 @@ public static class AnyProtocolLogEvents
     /// The readiness failed value.
     /// </summary>
     public const int ReadinessFailed = 1500;
+    /// <summary>
+    /// The unhandled message error value.
+    /// </summary>
+    public const int UnhandledMessageError = 1600;
+    /// <summary>
+    /// The fault delivery failed value.
+    /// </summary>
+    public const int FaultDeliveryFailed = 1601;
+    /// <summary>
+    /// The error handler failed value.
+    /// </summary>
+    public const int ErrorHandlerFailed = 1602;
+    /// <summary>
+    /// The routing failure value.
+    /// </summary>
+    public const int RoutingFailed = 1603;
+    /// <summary>
+    /// The stream delivery failure value.
+    /// </summary>
+    public const int StreamDeliveryFailed = 1604;
+    /// <summary>
+    /// The forced shutdown cancellation value.
+    /// </summary>
+    public const int ForcedShutdownCancellation = 1605;
+    /// <summary>
+    /// The ZeroMQ socket loop failed value.
+    /// </summary>
+    public const int ZeroMqSocketLoopFailed = 1700;
+    /// <summary>
+    /// The ZeroMQ decode failed value.
+    /// </summary>
+    public const int ZeroMqDecodeFailed = 1701;
+    /// <summary>
+    /// The ZeroMQ subscription handler failed value.
+    /// </summary>
+    public const int ZeroMqHandlerFailed = 1702;
+    /// <summary>
+    /// The ZeroMQ pending outbound failure value.
+    /// </summary>
+    public const int ZeroMqPendingOutboundFailed = 1703;
 }

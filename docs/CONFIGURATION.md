@@ -42,8 +42,13 @@ The configuration section overrides only protocol selections; serializers, trans
 | Required ordering | `TransportOrdering.None` |
 | `SubscriptionOptions.MaxConcurrency` | 1 |
 | `SubscriptionOptions.ConsumerGroup` | `null` |
+| Large payload offload | Disabled |
 
 `UseSerializer` and every referenced transport are required. Protocol keys are case-insensitive and duplicates fail configuration. String-based `UseTransport` and `AddTransport` overloads remain available for compatibility.
+
+Large payload offload is enabled only with `UseLargePayloadOffload`. It requires a named
+`ILargePayloadStore`, positive `MaxInlinePayloadBytes` and `TimeToLive`, and a
+`MaxStoredPayloadBytes` greater than the inline threshold. See [large payload offload](LARGE_PAYLOADS.md).
 
 `ProtocolKey` provides `Default`, `Rest`, `Grpc`, `Mcp`, `Kafka`, `RabbitMq`, `ZeroMq`, and `InMemory`. Use `ProtocolKey.Create(name)` for custom protocols or named instances. One contract cannot select the same native server transport type through two keys because that would create ambiguous REST or gRPC routes.
 
@@ -176,6 +181,29 @@ link.AddClientFilter(new RetryFilter(new RetryOptions
 
 `RetryOptions` defaults are one attempt, 100 ms initial delay, 5 s maximum delay, 0.2 jitter, and no total-time limit. The filter retries only methods marked `[Idempotent]`, and only `TimeoutException`, `IOException`, or `AnyProtocolFaultException` whose fault has `Retryable = true`. The attribute does not store idempotency keys or deduplicate delivery.
 
+Configure a durable inbox separately:
+
+```csharp
+services.AddAnyProtocolRedisDeduplicationStore("inbox", options =>
+{
+    options.ConnectionString = configuration.GetConnectionString("Redis");
+    options.KeyPrefix = "orders:inbox";
+});
+services.AddAnyProtocol(link => link
+    // serializer, transports, and contracts
+    .AddServerFilter(new InboxDeduplicationFilter(new InboxDeduplicationOptions
+    {
+        StoreName = "inbox",
+        LeaseDuration = TimeSpan.FromMinutes(5),
+        Retention = TimeSpan.FromDays(1)
+    })));
+```
+
+`ISchemaRegistry` is the provider-neutral contract for centralized schema versions. The built-in
+`InMemorySchemaRegistry` and `JsonSchemaCompatibilityChecker` support deterministic local
+backward/forward/full compatibility checks; production deployments can supply a durable registry
+adapter without changing contract code.
+
 ## Lifecycle
 
 `AddAnyProtocol` registers `AnyProtocolHostedService`. Host startup calls `IAnyProtocolBus.StartAsync`; shutdown calls `StopAsync`. Startup subscribes event and emulated-server routes before changing the state to `Started`. Failure rolls back created subscriptions and throws an `AggregateException`. Shutdown cancels the bus run token and disposes subscriptions; disposal additionally disposes transports.
@@ -223,3 +251,4 @@ Configuration fails before the service provider is returned when:
 - a transport name is duplicated;
 - timeout, retry, concurrency, Kafka, REST route, or ZeroMQ option validation fails;
 - Native AOT generated registration or serializer metadata is incomplete.
+- a large-payload policy has invalid bounds/TTL or its named store is not registered.

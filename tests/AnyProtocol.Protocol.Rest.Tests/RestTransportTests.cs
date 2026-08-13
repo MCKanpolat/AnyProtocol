@@ -121,7 +121,9 @@ public sealed class SharedRouteRestOrderService : ISharedRouteRestOrderService
 
 public sealed class RestOrderValidator : IRequestValidator<RestOrderRequest>
 {
-    public ValueTask<IValidationResult> RequestAsync(RestOrderRequest request)
+    public ValueTask<IValidationResult> ValidateAsync(
+        RestOrderRequest request,
+        CancellationToken cancellationToken = default)
     {
         var result = new ValidationResult();
         if (request.OrderId == "invalid")

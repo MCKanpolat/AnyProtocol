@@ -97,6 +97,10 @@ public sealed class TextJsonMessageSerializer : IMessageSerializer, IMessageSeri
 
             return memoryStream.ToArray();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new SerializationFailedException($"Failed to serialize message of type {typeof(T).FullName}", ex);
@@ -141,6 +145,10 @@ public sealed class TextJsonMessageSerializer : IMessageSerializer, IMessageSeri
 
             return memoryStream.ToArray();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new SerializationFailedException($"Failed to serialize message of type {type.FullName}", ex);
@@ -183,6 +191,10 @@ public sealed class TextJsonMessageSerializer : IMessageSerializer, IMessageSeri
                 (JsonTypeInfo<T>)_options.GetTypeInfo(typeof(T)),
                 cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new SerializationFailedException($"Failed to deserialize message of type {typeof(T).FullName}", ex);
@@ -214,14 +226,18 @@ public sealed class TextJsonMessageSerializer : IMessageSerializer, IMessageSeri
     /// <param name="bytes">The bytes.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the deserialize async.</returns>
-    public ValueTask<object?> DeserializeAsync(Type type, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
+    public async ValueTask<object?> DeserializeAsync(Type type, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
     {
         try
         {
-            return JsonSerializer.DeserializeAsync(
+            return await JsonSerializer.DeserializeAsync(
                 new MemoryStream(bytes.ToArray()),
                 _options.GetTypeInfo(type),
                 cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

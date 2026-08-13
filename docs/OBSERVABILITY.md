@@ -23,6 +23,11 @@ Activities are named `anyprotocol {operation}` and use `Producer` for outbound a
 | `anyprotocol.messaging.streams.active` | `UpDownCounter<long>` | `{stream}` |
 | `anyprotocol.messaging.retries` | `Counter<long>` | `{retry}` |
 | `anyprotocol.messaging.dead_letters` | `Counter<long>` | `{message}` |
+| `anyprotocol.payload.messages` | `Counter<long>` | `{message}` |
+| `anyprotocol.payload.bytes` | `Counter<long>` | `By` |
+| `anyprotocol.payload.store.duration` | `Histogram<double>` | `s` |
+| `anyprotocol.payload.failures` | `Counter<long>` | `{failure}` |
+| `anyprotocol.payload.age` | `Histogram<double>` | `s` |
 
 ## Tags and cardinality
 
@@ -38,6 +43,10 @@ Completed operations and handler measurements also use `anyprotocol.outcome`: `s
 Contract, method, and transport identifiers are limited to 128 characters. ASCII letters, digits, `.`, `_`, `-`, and `+` are preserved; other characters become `_`; missing values become `unknown`. Do not place tenant IDs, message IDs, user IDs, partition keys, channels containing user data, or other unbounded values into these identifiers.
 
 Activities add the same tags. Errors set `exception.type`, `anyprotocol.outcome`, and `ActivityStatusCode.Error`; exception messages, stack traces, and payloads are not recorded by the built-in tracing filter.
+
+Payload measurements add bounded `anyprotocol.payload.mode`, `direction`, `operation`, `store`,
+and stable `failure` tags as applicable. Store names are normalized and capped; opaque keys and
+message IDs are never tags. Stored activities add mode, logical store, and byte count.
 
 ## OpenTelemetry hookup
 

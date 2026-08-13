@@ -16,9 +16,7 @@ public sealed class RestServerProtocol :
     /// Gets the optional transport capabilities supported by this protocol.
     /// </summary>
     /// <value>The capabilities.</value>
-    public TransportCapabilities Capabilities =>
-        TransportCapabilities.NativeHeaders |
-        TransportCapabilities.NativeRequestReply;
+    public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
     /// <summary>
     /// Gets the delivery and ordering guarantees provided by this protocol.
@@ -29,7 +27,6 @@ public sealed class RestServerProtocol :
         DeliveryGuarantee = TransportDeliveryGuarantee.AtMostOnce,
         Ordering = TransportOrdering.None,
         Durability = TransportDurability.Volatile,
-        SupportsNativeRequestReply = true,
         SupportsBackpressure = true,
         SupportsCancellation = true
     };

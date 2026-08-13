@@ -2,6 +2,10 @@
 
 AnyProtocol supplies message metadata hooks; it does not establish identity, terminate TLS, store secrets, issue tokens, encrypt payloads, or create network policy.
 
+Large-payload providers are optional application infrastructure. Their credentials never travel in
+an envelope; see [large payload offload](LARGE_PAYLOADS.md#redis-sizing-and-security) for namespace,
+TTL, integrity, memory, and ACL requirements.
+
 ## Tokens and permissions
 
 Implement `IAuthTokenProvider` and add `AuthTokenFilter` to the client pipeline:
@@ -24,9 +28,15 @@ Mark protected operations:
 ValueTask<Order> GetAsync(GetOrder request, CancellationToken cancellationToken);
 ```
 
-Add `AuthorizationFilter` to the server pipeline and register an `IAuthorizationProvider`. The filter passes the declared permission strings to `CheckPermissionsAsync`. Your provider is responsible for authenticating the request, locating the propagated credential/principal through application dependencies, validating issuer/audience/signature/expiry, and deciding permissions. If no provider is available, the operation faults with `authorization_unavailable`; a denied check faults with `permission_denied`.
+Add `AuthorizationFilter` to the server pipeline and register an `IAuthorizationProvider`. The filter passes the declared permission strings to `CheckPermissionsAsync`. Your provider is responsible for authenticating the request, locating the propagated credential/principal through application dependencies, validating issuer/audience/signature/expiry, and deciding permissions. Host startup fails with the protected operation names when either the filter or provider is missing. A denied runtime check faults with `permission_denied`.
 
-`[RequirePermission]` alone does nothing unless `AuthorizationFilter` is installed.
+## Inbox deduplication
+
+For at-least-once one-way delivery, add `InboxDeduplicationFilter` to the server pipeline and
+register its named `IMessageDeduplicationStore`. The filter requires `cl-message-id`, suppresses an
+in-flight or completed duplicate, completes the inbox record only after handler success, and releases
+failed work for redelivery. Use `RedisMessageDeduplicationStore` across replicas; the in-memory store
+is process-local and is not a distributed guarantee.
 
 ## MCP is opt-in
 
@@ -78,7 +88,8 @@ Never send `cl-auth-token` over plaintext or an untrusted broker/network. AnyPro
 - Configure RabbitMQ TLS, a dedicated virtual host/user, least privilege, queue limits, and DLQ access; do not expose the management UI publicly.
 - Do not expose ZeroMQ bind ports publicly without an authenticated encrypted boundary.
 - Treat messages as untrusted input; register request validators and cap payload/request sizes in hosts and brokers.
-- Keep retries limited to truly idempotent handlers and implement application deduplication for at-least-once delivery.
+- Bound inline, stored, and total-stream payload sizes; alert on storage failures and integrity faults.
+- Keep retries limited to truly idempotent handlers and configure a durable inbox for at-least-once one-way delivery.
 - Use generated `JsonSerializerContext` metadata for Native AOT and avoid permissive polymorphic deserialization.
 - Bound shutdown and operation timeouts; alert on faults, retries, dead letters, and readiness loss.
 - Review exporter and third-party instrumentation settings for header, query-string, payload, and exception leakage.

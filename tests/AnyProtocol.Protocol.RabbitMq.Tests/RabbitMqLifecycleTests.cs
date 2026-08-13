@@ -16,7 +16,6 @@ public sealed class RabbitMqLifecycleTests(RabbitMqFixture fixture)
         });
 
         Assert.Equal(
-            TransportCapabilities.PublishSubscribe |
             TransportCapabilities.CompetingConsumers |
             TransportCapabilities.NativeHeaders,
             transport.Capabilities);
@@ -24,8 +23,6 @@ public sealed class RabbitMqLifecycleTests(RabbitMqFixture fixture)
         Assert.Equal(TransportOrdering.PerChannel, transport.Semantics.Ordering);
         Assert.Equal(TransportDurability.Durable, transport.Semantics.Durability);
         Assert.True(transport.Semantics.SupportsBackpressure);
-        Assert.False(transport.Semantics.SupportsNativeRequestReply);
-        Assert.False(transport.Semantics.SupportsNativeStreaming);
     }
 
     [SkippableFact]

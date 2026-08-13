@@ -10,7 +10,7 @@ namespace AnyProtocol.Protocol.InMemory;
 /// </summary>
 public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTransport, ITransportReadiness
 {
-    private readonly Lock _gate = new();
+    private readonly object _gate = new();
     private readonly Dictionary<string, List<Subscription>> _subscriptions =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _groupCounters =
@@ -32,7 +32,6 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
     /// </summary>
     /// <value>The capabilities.</value>
     public TransportCapabilities Capabilities =>
-        TransportCapabilities.PublishSubscribe |
         TransportCapabilities.CompetingConsumers |
         TransportCapabilities.NativeHeaders;
 
@@ -45,7 +44,6 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
         DeliveryGuarantee = TransportDeliveryGuarantee.AtMostOnce,
         Ordering = TransportOrdering.PerChannel,
         Durability = TransportDurability.Volatile,
-        SupportsPublishSubscribe = true,
         SupportsCompetingConsumers = true,
         SupportsBackpressure = true,
         SupportsCancellation = true
@@ -118,7 +116,7 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
     /// <param name="options">The options that control the operation.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the subscribe async.</returns>
-    public ValueTask<IAsyncDisposable> SubscribeAsync(
+    public ValueTask<ITransportSubscription> SubscribeAsync(
         string channel,
         Func<TransportEnvelope, CancellationToken, ValueTask> handler,
         SubscriptionOptions? options = null,
@@ -156,7 +154,7 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
             subscribers.Add(subscription);
         }
 
-        return ValueTask.FromResult<IAsyncDisposable>(subscription);
+        return ValueTask.FromResult<ITransportSubscription>(subscription);
     }
 
     /// <summary>
@@ -220,13 +218,15 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
     private static TransportEnvelope CloneEnvelope(TransportEnvelope envelope)
         => new(new SnapshotHeaders(envelope.Headers), envelope.Body.ToArray());
 
-    private sealed class Subscription : IAsyncDisposable
+    private sealed class Subscription : ITransportSubscription
     {
         private readonly Channel<TransportEnvelope> _queue;
         private readonly CancellationTokenSource _stopping = new();
         private readonly Task[] _workers;
         private readonly Func<TransportEnvelope, CancellationToken, ValueTask> _handler;
         private readonly Action<Subscription> _remove;
+        private readonly object _acceptingGate = new();
+        private bool _accepting = true;
         private int _disposed;
 
         public Subscription(
@@ -259,7 +259,31 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
         public ValueTask EnqueueAsync(
             TransportEnvelope envelope,
             CancellationToken cancellationToken)
-            => _queue.Writer.WriteAsync(envelope, cancellationToken);
+        {
+            lock (_acceptingGate)
+            {
+                return _accepting
+                    ? _queue.Writer.WriteAsync(envelope, cancellationToken)
+                    : ValueTask.CompletedTask;
+            }
+        }
+
+        public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_acceptingGate)
+            {
+                if (!_accepting)
+                {
+                    return ValueTask.CompletedTask;
+                }
+
+                _accepting = false;
+            }
+
+            _remove(this);
+            return ValueTask.CompletedTask;
+        }
 
         public async ValueTask DisposeAsync()
         {
@@ -268,7 +292,7 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
                 return;
             }
 
-            _remove(this);
+            _ = StopAcceptingAsync();
             _queue.Writer.TryComplete();
             _stopping.Cancel();
 
@@ -292,8 +316,22 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
                 await foreach (var envelope in _queue.Reader.ReadAllAsync(_stopping.Token)
                                    .ConfigureAwait(false))
                 {
-                    await _handler(envelope, _stopping.Token).ConfigureAwait(false);
+                    ValueTask handling;
+                    lock (_acceptingGate)
+                    {
+                        if (!_accepting)
+                        {
+                            break;
+                        }
+
+                        handling = _handler(envelope, _stopping.Token);
+                    }
+
+                    await handling.ConfigureAwait(false);
                 }
+            }
+            catch (MessageAdmissionRejectedException)
+            {
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {

@@ -14,7 +14,7 @@ One logical server registration can be exposed through several protocols at the 
 
 ![AnyProtocol overview: one contract, any transport](docs/assets/AnyProtocol_overview.png)
 
-> **Stability:** The repository targets .NET 10 and the public API is still evolving. Pin package versions, validate transport semantics for your workload, and use the source generator plus serializer metadata before Native AOT deployment. Transport support is intentionally capability-based; a feature listed for one transport is not implied for the others.
+> **Support:** Core, abstraction, serializer, encoder, and InMemory packages target .NET 8 and .NET 10; see the [support policy](docs/SUPPORT_POLICY.md). The public API is still evolving. Pin package versions, validate transport semantics for your workload, and use the source generator plus serializer metadata before Native AOT deployment. Transport support is intentionally capability-based; a feature listed for one transport is not implied for the others.
 
 ## Transport matrix
 
@@ -68,7 +68,11 @@ dotnet add package AnyProtocol.Serializer.TextJson
 | gRPC client / ASP.NET Core server | `AnyProtocol.Protocol.Grpc`, `AnyProtocol.Protocol.Grpc.AspNetCore` |
 | Kafka / RabbitMQ / ZeroMQ | `AnyProtocol.Protocol.Kafka`, `AnyProtocol.Protocol.RabbitMq`, `AnyProtocol.Protocol.ZeroMq` |
 | Optional MCP exposure | `AnyProtocol.Mcp`, `AnyProtocol.Mcp.AspNetCore` |
+| Large payload contract / Redis provider | `AnyProtocol.Storage.Abstraction`, `AnyProtocol.Storage.Redis` |
 | Compile-time contract generation | `AnyProtocol.Generator` |
+
+Schema Registry is not shipped. Large payload offload is an optional, provider-neutral feature;
+see the [large payload guide](docs/LARGE_PAYLOADS.md). It is disabled by default.
 
 ## Envelope codecs
 
@@ -205,12 +209,15 @@ Every selected protocol is validated against every contract operation during sta
 - [Getting started and transport switching](https://mckanpolat.github.io/AnyProtocol/GETTING_STARTED.html)
 - [Configuration reference](https://mckanpolat.github.io/AnyProtocol/CONFIGURATION.html)
 - [Envelope codecs](https://mckanpolat.github.io/AnyProtocol/ENCODERS.html)
+- [Large payload offload](https://mckanpolat.github.io/AnyProtocol/LARGE_PAYLOADS.html)
 - [RabbitMQ guide](https://mckanpolat.github.io/AnyProtocol/RABBITMQ.html)
 - [Transport semantics](https://mckanpolat.github.io/AnyProtocol/TRANSPORT_SEMANTICS.html)
 - [Performance methodology](https://mckanpolat.github.io/AnyProtocol/PERFORMANCE.html)
 - [Deployment](https://mckanpolat.github.io/AnyProtocol/DEPLOYMENT.html)
 - [Observability](https://mckanpolat.github.io/AnyProtocol/OBSERVABILITY.html)
 - [Security](https://mckanpolat.github.io/AnyProtocol/SECURITY.html)
+- [Support policy](docs/SUPPORT_POLICY.md)
+- [Architecture](docs/ARCHITECTURE.md)
 - [API reference](https://mckanpolat.github.io/AnyProtocol/api/)
 - [OrderSystem multi-protocol reference](https://github.com/MCKanpolat/AnyProtocol/tree/develop/samples/OrderSystem.MultiProtocol)
 - [OrderSystem MCP/REST host](https://github.com/MCKanpolat/AnyProtocol/tree/develop/samples/OrderSystem.McpHost)

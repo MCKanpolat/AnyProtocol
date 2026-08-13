@@ -19,7 +19,7 @@ public sealed class AuthorizationFilter : IMessageFilter
         var permissions = context.Method?.RequiredPermissions;
         if (permissions is { Count: > 0 })
         {
-            var provider = context.Services?.Resolve<IAuthorizationProvider>() ??
+            var provider = MessageContextRuntime.Get(context).Services?.Resolve<IAuthorizationProvider>() ??
                            throw new AnyProtocolFaultException(
                                new FaultMessage(
                                    "authorization_unavailable",

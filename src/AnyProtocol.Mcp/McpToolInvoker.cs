@@ -2,6 +2,7 @@ using System.Text.Json;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using AnyProtocol.Serializer.Abstraction;
+using AnyProtocol.Services;
 
 namespace AnyProtocol.Mcp;
 
@@ -10,11 +11,13 @@ namespace AnyProtocol.Mcp;
 /// </summary>
 public sealed class McpToolInvoker
 {
-    private const string ReplyChannel = "_anyprotocol.mcp.response";
     private readonly McpToolCatalog _catalog;
     private readonly MessageDispatcher _dispatcher;
     private readonly IMessageSerializer _serializer;
     private readonly IMcpCredentialProvider _credentialProvider;
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
+    private readonly IRequestAdmission _admission;
+    private readonly OutboundOperationLifetime _outboundLifetime;
 
     /// <summary>
     /// Initializes a new instance of the McpToolInvoker class.
@@ -23,17 +26,26 @@ public sealed class McpToolInvoker
     /// <param name="dispatcher">The dispatcher.</param>
     /// <param name="serializer">The serializer.</param>
     /// <param name="credentialProvider">The credential provider.</param>
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    /// <param name="admission">The shared request admission coordinator.</param>
+    /// <param name="outboundLifetime">The cancellation boundary for the current bus run.</param>
     public McpToolInvoker(
         McpToolCatalog catalog,
         MessageDispatcher dispatcher,
         IMessageSerializer serializer,
-        IMcpCredentialProvider credentialProvider)
+        IMcpCredentialProvider credentialProvider,
+        IMessageEnvelopeFactory? envelopeFactory = null,
+        IRequestAdmission? admission = null,
+        OutboundOperationLifetime? outboundLifetime = null)
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _credentialProvider = credentialProvider ??
                               throw new ArgumentNullException(nameof(credentialProvider));
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
+        _admission = admission ?? CreateStandaloneAdmission();
+        _outboundLifetime = outboundLifetime ?? new OutboundOperationLifetime();
     }
 
     /// <summary>
@@ -48,6 +60,20 @@ public sealed class McpToolInvoker
         IReadOnlyDictionary<string, JsonElement>? arguments,
         CancellationToken cancellationToken = default)
     {
+        using var admissionLease = _admission.TryEnter();
+        if (admissionLease is null)
+        {
+            return McpInvocationResult.Failure(
+                "retryable_unavailable",
+                "AnyProtocol is draining and cannot accept new MCP tool calls.",
+                retryable: true);
+        }
+
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _outboundLifetime.Token);
+        var operationToken = operationCancellation.Token;
+
         McpToolDescriptor tool;
         try
         {
@@ -55,7 +81,7 @@ public sealed class McpToolInvoker
         }
         catch (KeyNotFoundException exception)
         {
-            return McpInvocationResult.Error("tool_not_found", exception.Message);
+            return McpInvocationResult.Failure("tool_not_found", exception.Message);
         }
 
         object request;
@@ -70,57 +96,41 @@ public sealed class McpToolInvoker
         }
         catch (JsonException exception)
         {
-            return McpInvocationResult.Error("invalid_arguments", exception.Message);
+            return McpInvocationResult.Failure("invalid_arguments", exception.Message);
         }
 
         var requestBody = await _serializer.SerializeAsync(
                 tool.Method.RequestType,
                 request,
-                cancellationToken)
+                operationToken)
             .ConfigureAwait(false);
-        var headers = new MessageHeaders
-        {
-            [HeaderNames.MessageId] = Guid.NewGuid().ToString("N"),
-            [HeaderNames.CorrelationId] = Guid.NewGuid().ToString("N"),
-            [HeaderNames.ReplyTo] = ReplyChannel,
-            [HeaderNames.Channel] = tool.Method.Channel,
-            [HeaderNames.Contract] = tool.Method.ContractName,
-            [HeaderNames.Method] = tool.Method.MethodName,
-            [HeaderNames.MessageType] = MessageType.Request.ToString(),
-            [HeaderNames.ContentType] = _serializer.GetType().FullName
-        };
+        var headers = _envelopeFactory.CreateOutboundHeaders(
+            MessageType.Request,
+            tool.Method.Channel,
+            tool.Method.ContractName,
+            tool.Method.MethodName,
+            _serializer.GetType().FullName,
+            correlationId: _envelopeFactory.CreateMessageId());
         var token = _credentialProvider.GetAuthToken();
         if (!string.IsNullOrWhiteSpace(token))
         {
             headers[HeaderNames.AuthToken] = token;
         }
 
-        var capture = new CaptureProtocol();
-        await _dispatcher.DispatchAsync(
+        var dispatch = await _dispatcher.InvokeAsync(
                 tool.Registration,
                 tool.Method,
                 new TransportEnvelope(headers, requestBody),
-                capture,
-                cancellationToken,
+                operationToken,
                 ProtocolKey.Mcp)
             .ConfigureAwait(false);
-        if (capture.Response is null)
+        if (dispatch.Fault is not null)
         {
-            return McpInvocationResult.Success(null);
-        }
-
-        var messageType = capture.Response.Headers.Get(
-            HeaderNames.MessageType,
-            MessageType.Fault);
-        if (messageType == MessageType.Fault)
-        {
-            var fault = await _serializer.DeserializeAsync<FaultMessage>(
-                    capture.Response.Body,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            return McpInvocationResult.Error(
-                fault?.Code ?? "tool_error",
-                fault?.Message ?? "The AnyProtocol tool failed.");
+            return McpInvocationResult.Failure(
+                dispatch.Fault.Code,
+                dispatch.Fault.Message,
+                dispatch.Fault.Retryable,
+                dispatch.Fault.Details);
         }
 
         if (tool.Method.ResponseType is null)
@@ -128,13 +138,8 @@ public sealed class McpToolInvoker
             return McpInvocationResult.Success(null);
         }
 
-        var response = await _serializer.DeserializeAsync(
-                tool.Method.ResponseType,
-                capture.Response.Body,
-                cancellationToken)
-            .ConfigureAwait(false);
         var result = JsonSerializer.SerializeToElement(
-            response,
+            dispatch.Result,
             _catalog.SerializerOptions.GetTypeInfo(tool.Method.ResponseType));
         return McpInvocationResult.Success(
             result.ValueKind == JsonValueKind.Object
@@ -164,6 +169,13 @@ public sealed class McpToolInvoker
         return stream.ToArray();
     }
 
+    private static RequestAdmissionCoordinator CreateStandaloneAdmission()
+    {
+        var admission = new RequestAdmissionCoordinator();
+        admission.StartAccepting();
+        return admission;
+    }
+
     private static JsonElement WrapResult(JsonElement result)
     {
         using var stream = new MemoryStream();
@@ -179,58 +191,56 @@ public sealed class McpToolInvoker
         return document.RootElement.Clone();
     }
 
-    private sealed class CaptureProtocol : ISendTransport
-    {
-        public TransportEnvelope? Response { get; private set; }
-
-        public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
-
-        public ValueTask SendAsync(
-            string channel,
-            TransportEnvelope envelope,
-            CancellationToken cancellationToken = default)
-        {
-            if (channel != ReplyChannel)
-            {
-                throw new InvalidOperationException(
-                    $"Unexpected MCP reply channel '{channel}'.");
-            }
-
-            Response = envelope;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
 }
 
 /// <summary>
 /// Contains the outcome of mcp invocation processing.
 /// </summary>
 /// <param name="IsError">The is error.</param>
-/// <param name="ErrorCode">The error code.</param>
-/// <param name="Message">The message payload or description.</param>
+/// <param name="Error">The structured error, when invocation failed.</param>
 /// <param name="StructuredContent">The structured content.</param>
 public sealed record McpInvocationResult(
     bool IsError,
-    string? ErrorCode,
-    string? Message,
+    McpToolError? Error,
     JsonElement? StructuredContent)
 {
+    /// <summary>Gets the machine-readable error code.</summary>
+    public string? ErrorCode => Error?.Code;
+
+    /// <summary>Gets the safe error message.</summary>
+    public string? Message => Error?.Message;
+
     /// <summary>
     /// Performs the success operation.
     /// </summary>
     /// <param name="content">The content.</param>
     /// <returns>The result of the success operation.</returns>
     public static McpInvocationResult Success(JsonElement? content)
-        => new(false, null, null, content);
+        => new(false, null, content);
 
     /// <summary>
     /// Performs the error operation.
     /// </summary>
     /// <param name="code">The machine-readable code.</param>
     /// <param name="message">The message payload or description.</param>
+    /// <param name="retryable">Whether the caller can retry the operation.</param>
+    /// <param name="details">Structured validation or fault details.</param>
     /// <returns>The result of the error operation.</returns>
-    public static McpInvocationResult Error(string code, string message)
-        => new(true, code, message, null);
+    public static McpInvocationResult Failure(
+        string code,
+        string message,
+        bool retryable = false,
+        IReadOnlyList<FaultDetail>? details = null)
+        => new(true, new McpToolError(code, message, retryable, details ?? []), null);
 }
+
+/// <summary>Contains the structured, safe error returned from an MCP tool invocation.</summary>
+/// <param name="Code">The stable machine-readable error code.</param>
+/// <param name="Message">The safe user-facing message.</param>
+/// <param name="Retryable">Whether the caller can retry the operation.</param>
+/// <param name="Details">Structured validation or fault details.</param>
+public sealed record McpToolError(
+    string Code,
+    string Message,
+    bool Retryable,
+    IReadOnlyList<FaultDetail> Details);

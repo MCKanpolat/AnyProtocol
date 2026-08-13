@@ -1,6 +1,6 @@
-using System.Collections.Concurrent;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
+using AnyProtocol.Services;
 
 namespace AnyProtocol;
 
@@ -19,20 +19,24 @@ public sealed class RequestReplyEngine : IAsyncDisposable
     }
 
     private readonly IMessagingProtocol _transport;
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<TransportEnvelope>> _pending = new();
-    private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly string _replyChannel = $"_anyprotocol.reply.{Guid.NewGuid():N}";
-    private IAsyncDisposable? _replySubscription;
+    private readonly ReplyInbox _replyInbox;
     private int _state;
 
     /// <summary>
     /// Initializes a new instance of the RequestReplyEngine class.
     /// </summary>
     /// <param name="transport">The transport.</param>
-    public RequestReplyEngine(IMessagingProtocol transport)
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    public RequestReplyEngine(
+        IMessagingProtocol transport,
+        IMessageEnvelopeFactory? envelopeFactory = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
+        _replyInbox = new ReplyInbox(_transport, _replyChannel);
     }
 
     /// <summary>
@@ -81,13 +85,28 @@ public sealed class RequestReplyEngine : IAsyncDisposable
             operationCancellation.CancelAfter(timeout);
         }
 
+        var headers = _envelopeFactory.CreateOutboundHeaders(
+            MessageType.Request,
+            channel,
+            request.Headers[HeaderNames.Contract],
+            request.Headers[HeaderNames.Method],
+            request.Headers[HeaderNames.ContentType],
+            request.Headers);
+        var messageId = headers[HeaderNames.MessageId]!;
+        if (string.IsNullOrWhiteSpace(headers[HeaderNames.CorrelationId]))
+        {
+            headers[HeaderNames.CorrelationId] = messageId;
+        }
+        var correlationId = headers[HeaderNames.CorrelationId]!;
+        var outboundRequest = new TransportEnvelope(headers, request.Body);
+
         if (_transport is IMethodAwareRequestReplyTransport methodAwareTransport && method is not null)
         {
             try
             {
-                return await methodAwareTransport.RequestAsync(
+                    return await methodAwareTransport.RequestAsync(
                         channel,
-                        request,
+                        outboundRequest,
                         method,
                         operationCancellation.Token)
                     .ConfigureAwait(false);
@@ -108,7 +127,7 @@ public sealed class RequestReplyEngine : IAsyncDisposable
             {
                 return await nativeTransport.RequestAsync(
                         channel,
-                        request,
+                        outboundRequest,
                         operationCancellation.Token)
                     .ConfigureAwait(false);
             }
@@ -122,26 +141,20 @@ public sealed class RequestReplyEngine : IAsyncDisposable
             }
         }
 
-        var messageId = Guid.NewGuid().ToString("N");
         var completion = new TaskCompletionSource<TransportEnvelope>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var headers = new MessageHeaders(request.Headers);
-        headers.Set(HeaderNames.MessageId, messageId);
-        headers.Set(HeaderNames.CorrelationId, messageId);
         headers.Set(HeaderNames.ReplyTo, _replyChannel);
-        headers.Set(HeaderNames.Channel, channel);
-        headers.Set(HeaderNames.MessageType, MessageType.Request.ToString());
 
         try
         {
-            await StartAndRegisterAsync(messageId, completion, operationCancellation.Token)
+            await _replyInbox.RegisterAsync(correlationId, completion, operationCancellation.Token)
                 .ConfigureAwait(false);
             var sendTransport = _transport as ISendTransport ??
                 throw new InvalidOperationException(
                     "Request/reply emulation requires an ISendTransport implementation.");
             await sendTransport.SendAsync(
                     channel,
-                    new TransportEnvelope(headers, request.Body),
+                    outboundRequest,
                     operationCancellation.Token)
                 .ConfigureAwait(false);
             return await completion.Task.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
@@ -156,27 +169,8 @@ public sealed class RequestReplyEngine : IAsyncDisposable
         }
         finally
         {
-            _pending.TryRemove(messageId, out _);
+            _replyInbox.Unregister(correlationId, completion);
         }
-    }
-
-    /// <summary>
-    /// Publishes a message to all subscribers of its configured channel.
-    /// </summary>
-    /// <param name="channel">The logical message channel.</param>
-    /// <param name="envelope">The transport envelope to process.</param>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    public ValueTask PublishAsync(
-        string channel,
-        TransportEnvelope envelope,
-        CancellationToken cancellationToken = default)
-    {
-        ThrowIfDisposed();
-        return (_transport as ISendTransport ??
-                throw new InvalidOperationException(
-                    "Publishing requires an ISendTransport implementation."))
-            .SendAsync(channel, envelope, cancellationToken);
     }
 
     /// <summary>
@@ -186,99 +180,21 @@ public sealed class RequestReplyEngine : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _lifetime.Cancel();
-        await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-        try
+        if (State == EngineState.Disposed)
         {
-            if (State == EngineState.Disposed)
-            {
-                return;
-            }
-
-            Volatile.Write(ref _state, (int)EngineState.Disposing);
-            var disposedException = new ObjectDisposedException(nameof(RequestReplyEngine));
-            foreach (var completion in _pending.Values)
-            {
-                completion.TrySetException(disposedException);
-            }
-
-            _pending.Clear();
-            if (_replySubscription is not null)
-            {
-                await _replySubscription.DisposeAsync().ConfigureAwait(false);
-                _replySubscription = null;
-            }
-
-            Volatile.Write(ref _state, (int)EngineState.Disposed);
+            return;
         }
-        finally
-        {
-            _lifecycleLock.Release();
-        }
+
+        Volatile.Write(ref _state, (int)EngineState.Disposing);
+        await _replyInbox.DisposeAsync().ConfigureAwait(false);
+
+        Volatile.Write(ref _state, (int)EngineState.Disposed);
     }
 
     private EngineState State => (EngineState)Volatile.Read(ref _state);
-
-    private async ValueTask StartAndRegisterAsync(
-        string messageId,
-        TaskCompletionSource<TransportEnvelope> completion,
-        CancellationToken cancellationToken)
-    {
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ThrowIfDisposed();
-            if (State == EngineState.Created)
-            {
-                Volatile.Write(ref _state, (int)EngineState.Starting);
-                try
-                {
-                    var subscriptionTransport = _transport as ISubscriptionTransport ??
-                        throw new InvalidOperationException(
-                            "Request/reply emulation requires an ISubscriptionTransport implementation.");
-                    _replySubscription = await subscriptionTransport.SubscribeAsync(
-                            _replyChannel,
-                            HandleReplyAsync,
-                            cancellationToken: cancellationToken)
-                        .ConfigureAwait(false);
-                    Volatile.Write(ref _state, (int)EngineState.Started);
-                }
-                catch
-                {
-                    Volatile.Write(ref _state, (int)EngineState.Created);
-                    throw;
-                }
-            }
-
-            if (State != EngineState.Started)
-            {
-                ThrowIfDisposed();
-                throw new InvalidOperationException($"Request/reply engine is {State}.");
-            }
-
-            if (!_pending.TryAdd(messageId, completion))
-            {
-                throw new InvalidOperationException($"A request with id '{messageId}' is already pending.");
-            }
-        }
-        finally
-        {
-            _lifecycleLock.Release();
-        }
-    }
 
     private void ThrowIfDisposed()
         => ObjectDisposedException.ThrowIf(
             State is EngineState.Disposing or EngineState.Disposed,
             this);
-
-    private ValueTask HandleReplyAsync(TransportEnvelope envelope, CancellationToken cancellationToken)
-    {
-        var correlationId = envelope.Headers[HeaderNames.CorrelationId];
-        if (correlationId is not null && _pending.TryGetValue(correlationId, out var completion))
-        {
-            completion.TrySetResult(envelope);
-        }
-
-        return ValueTask.CompletedTask;
-    }
 }

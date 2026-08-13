@@ -52,6 +52,29 @@ public static class AnyProtocolDiagnostics
     /// The dead letters name value.
     /// </summary>
     public const string DeadLettersName = "anyprotocol.messaging.dead_letters";
+    /// <summary>
+    /// The active admitted work name value.
+    /// </summary>
+    public const string ActiveWorkName = "anyprotocol.messaging.shutdown.active";
+    /// <summary>
+    /// The forced shutdown cancellations name value.
+    /// </summary>
+    public const string ForcedShutdownCancellationsName =
+        "anyprotocol.messaging.shutdown.forced_cancellations";
+    /// <summary>
+    /// The transport failures name value.
+    /// </summary>
+    public const string TransportFailuresName = "anyprotocol.transport.failures";
+    /// <summary>The inline versus stored payload count.</summary>
+    public const string PayloadMessagesName = "anyprotocol.payload.messages";
+    /// <summary>The number of bytes written to or read from payload stores.</summary>
+    public const string PayloadBytesName = "anyprotocol.payload.bytes";
+    /// <summary>The payload-store operation duration.</summary>
+    public const string PayloadStoreDurationName = "anyprotocol.payload.store.duration";
+    /// <summary>The payload-store failure count.</summary>
+    public const string PayloadFailuresName = "anyprotocol.payload.failures";
+    /// <summary>The age of a stored payload when hydrated.</summary>
+    public const string PayloadAgeName = "anyprotocol.payload.age";
 
     /// <summary>
     /// Performs the activity source operation.
@@ -78,6 +101,97 @@ public static class AnyProtocolDiagnostics
         Meter.CreateCounter<long>(RetriesName, "{retry}");
     private static readonly Counter<long> DeadLetters =
         Meter.CreateCounter<long>(DeadLettersName, "{message}");
+    private static readonly UpDownCounter<long> ActiveWork =
+        Meter.CreateUpDownCounter<long>(ActiveWorkName, "{work}");
+    private static readonly Counter<long> ForcedShutdownCancellations =
+        Meter.CreateCounter<long>(ForcedShutdownCancellationsName, "{work}");
+    private static readonly Counter<long> TransportFailures =
+        Meter.CreateCounter<long>(TransportFailuresName, "{failure}");
+    private static readonly Counter<long> PayloadMessages =
+        Meter.CreateCounter<long>(PayloadMessagesName, "{message}");
+    private static readonly Counter<long> PayloadBytes =
+        Meter.CreateCounter<long>(PayloadBytesName, "By");
+    private static readonly Histogram<double> PayloadStoreDuration =
+        Meter.CreateHistogram<double>(PayloadStoreDurationName, "s");
+    private static readonly Counter<long> PayloadFailures =
+        Meter.CreateCounter<long>(PayloadFailuresName, "{failure}");
+    private static readonly Histogram<double> PayloadAge =
+        Meter.CreateHistogram<double>(PayloadAgeName, "s");
+
+    internal static void RecordPayloadMessage(string mode, string direction)
+    {
+        PayloadMessages.Add(
+            1,
+            new TagList
+            {
+                { "anyprotocol.payload.mode", mode },
+                { "anyprotocol.payload.direction", direction }
+            });
+        Activity.Current?.SetTag("anyprotocol.payload.mode", mode);
+    }
+
+    internal static void RecordPayloadStoreOperation(
+        string operation,
+        string store,
+        int bytes,
+        long startedAt)
+    {
+        var tags = new TagList
+        {
+            { "anyprotocol.payload.operation", operation },
+            { "anyprotocol.payload.store", DiagnosticTags.NormalizeIdentifier(store) }
+        };
+        PayloadBytes.Add(bytes, tags);
+        PayloadStoreDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalSeconds, tags);
+        Activity.Current?.SetTag("anyprotocol.payload.store", DiagnosticTags.NormalizeIdentifier(store));
+        Activity.Current?.SetTag("anyprotocol.payload.bytes", bytes);
+    }
+
+    internal static void RecordPayloadFailure(string code, string operation)
+        => PayloadFailures.Add(
+            1,
+            new TagList
+            {
+                { "anyprotocol.payload.failure", DiagnosticTags.NormalizeIdentifier(code) },
+                { "anyprotocol.payload.operation", operation }
+            });
+
+    internal static void RecordPayloadAge(DateTimeOffset sentAt, DateTimeOffset hydratedAt)
+    {
+        var age = hydratedAt - sentAt;
+        PayloadAge.Record(Math.Max(0, age.TotalSeconds));
+    }
+
+    internal static void RecordActiveWork(long delta)
+        => ActiveWork.Add(delta, new TagList { { "anyprotocol.work", "admitted" } });
+
+    internal static void RecordForcedShutdownCancellation(long count)
+    {
+        if (count > 0)
+        {
+            ForcedShutdownCancellations.Add(
+                count,
+                new TagList { { "anyprotocol.work", "admitted" } });
+        }
+    }
+
+    /// <summary>
+    /// Records a bounded-cardinality transport failure.
+    /// </summary>
+    /// <param name="transport">The transport name.</param>
+    /// <param name="failure">The stable failure category.</param>
+    public static void RecordTransportFailure(string transport, string failure)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(transport);
+        ArgumentException.ThrowIfNullOrWhiteSpace(failure);
+        TransportFailures.Add(
+            1,
+            new TagList
+            {
+                { "anyprotocol.transport", transport },
+                { "anyprotocol.failure", failure }
+            });
+    }
 
     internal static OperationMeasurement StartOperation(
         IMessageContext context,
@@ -227,7 +341,7 @@ internal static class DiagnosticTags
     private static string NormalizeOperation(string? value)
         => value is "request" or "event" or "stream" ? value : "unknown";
 
-    private static string NormalizeIdentifier(string? value)
+    internal static string NormalizeIdentifier(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

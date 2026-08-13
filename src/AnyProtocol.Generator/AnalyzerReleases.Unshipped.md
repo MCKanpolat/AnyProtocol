@@ -12,3 +12,4 @@ CLNK005 | AnyProtocol | Error | Return types must map to a supported operation.
 CLNK006 | AnyProtocol | Error | Partition key properties must be unique, readable, and non-indexed.
 CLNK007 | AnyProtocol | Error | Registrations must name a closed contract directly so source generation can discover them.
 CLNK008 | AnyProtocol | Error | Contract properties, events, and static methods are unsupported.
+CLNK009 | AnyProtocol | Error | Event registrations must use a closed event and a matching event consumer.

@@ -6,6 +6,8 @@ using AnyProtocol.Configuration;
 using AnyProtocol.DependencyInjection.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using AnyProtocol.Serializer.Abstraction;
+using AnyProtocol.Services;
+using AnyProtocol.Storage.Abstraction;
 
 namespace AnyProtocol;
 
@@ -19,7 +21,11 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
     private readonly IMessageSerializer _serializer;
     private readonly IReadOnlyDictionary<Type, ClientRegistration> _registrations;
     private readonly MessageFilterDelegate _pipeline;
-    private readonly IDependencyResolver? _services;
+    private readonly OutboundOperationExecutor _executor;
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
+    private readonly LargePayloadOffloader _payloadOffloader;
+    private readonly LargePayloadMaterializer _payloadMaterializer;
+    private readonly MessageFilterDelegate _streamPreparationPipeline;
     private readonly ConcurrentDictionary<IMessagingProtocol, RequestReplyEngine> _engines = new();
     private readonly ConcurrentDictionary<IMessagingProtocol, StreamEngine> _streamEngines = new();
 
@@ -29,22 +35,33 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
     /// <param name="transports">The transports.</param>
     /// <param name="serializer">The serializer.</param>
     /// <param name="registrations">The registrations.</param>
-    /// <param name="filters">The filters.</param>
-    /// <param name="services">The service collection to configure.</param>
+    /// <param name="executor">The outbound operation executor.</param>
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    /// <param name="payloadOffloader">The optional outbound payload processor.</param>
+    /// <param name="payloadMaterializer">The optional inbound payload processor.</param>
     public AnyProtocolClientInvoker(
         TransportRegistry transports,
         IMessageSerializer serializer,
         IEnumerable<ClientRegistration> registrations,
-        IEnumerable<IMessageFilter>? filters = null,
-        IDependencyResolver? services = null)
+        OutboundOperationExecutor executor,
+        IMessageEnvelopeFactory? envelopeFactory = null,
+        LargePayloadOffloader? payloadOffloader = null,
+        LargePayloadMaterializer? payloadMaterializer = null)
     {
         _transports = transports ?? throw new ArgumentNullException(nameof(transports));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _registrations = registrations.ToDictionary(registration => registration.ContractType);
-        _services = services;
-        _pipeline = PipelineBuilder.Build(
-            ObservabilityFilters.AddDefaults(filters),
-            InvokeTransportAsync);
+        _executor = executor ?? throw new ArgumentNullException(nameof(executor));
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
+        var emptyStores = new LargePayloadStoreRegistry([]);
+        _payloadOffloader = payloadOffloader ?? new LargePayloadOffloader(null, emptyStores);
+        _payloadMaterializer = payloadMaterializer ?? new LargePayloadMaterializer(
+            emptyStores,
+            new DefaultDateTimeProvider());
+        _pipeline = _executor.CreatePipeline(InvokeTransportAsync);
+        _streamPreparationPipeline = _executor.CreatePipeline(
+            static _ => ValueTask.CompletedTask,
+            includeObservability: false);
     }
 
     /// <summary>
@@ -62,9 +79,11 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var context = await CreateContextAsync(method, request, cancellationToken).ConfigureAwait(false);
-        await _pipeline(context).ConfigureAwait(false);
-        var response = context.Response ??
+        await _executor.ExecuteAsync(context, _pipeline).ConfigureAwait(false);
+        var response = MessageContextRuntime.Get(context).Result.Response ??
                        throw new InvalidOperationException($"Method '{method.MethodName}' produced no response.");
+        response = await _payloadMaterializer.MaterializeAsync(response, cancellationToken)
+            .ConfigureAwait(false);
         ThrowIfFault(response);
         var result = await _serializer.DeserializeAsync<TResponse>(response.Body, cancellationToken)
             .ConfigureAwait(false);
@@ -85,10 +104,11 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var context = await CreateContextAsync(method, request, cancellationToken).ConfigureAwait(false);
-        await _pipeline(context).ConfigureAwait(false);
-        if (context.Response is not null)
+        await _executor.ExecuteAsync(context, _pipeline).ConfigureAwait(false);
+        var response = MessageContextRuntime.Get(context).Result.Response;
+        if (response is not null)
         {
-            ThrowIfFault(context.Response);
+            ThrowIfFault(response);
         }
     }
 
@@ -108,43 +128,45 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
     {
         var registration = GetRegistration(method.ContractType);
         var transport = _transports.GetRequired(registration.TransportName);
-        var envelope = await CreateEnvelopeAsync(method, request, MessageType.Request, cancellationToken)
-            .ConfigureAwait(false);
-        var context = new MessageContext(
-            envelope.Headers,
-            envelope.Body,
-            method.Channel,
-            MessageType.Request,
-            MessageDirection.Outbound,
-            cancellationToken)
-        {
-            Message = request,
-            Method = method,
-            Services = _services
-        };
-        context.Items[DiagnosticContext.TransportNameKey] = registration.TransportName;
-        envelope.Headers[HeaderNames.Deadline] = DateTimeOffset.UtcNow
-            .Add(registration.Timeout)
-            .ToString("O");
+        var context = await CreateContextAsync(method, request, cancellationToken).ConfigureAwait(false);
         var measurement = AnyProtocolDiagnostics.StartOperation(
             context,
             registration.TransportName,
             "stream");
         using var activity = TracingFilter.StartActivity(context);
         var outcome = "cancelled";
+        long totalBytes = 0;
         try
         {
-            var stream = transport is IStreamingTransport streamingTransport
-                ? streamingTransport.StreamAsync(method.Channel, envelope, cancellationToken)
-                : _streamEngines.GetOrAdd(transport, static value => new StreamEngine(value))
-                    .StreamAsync(method.Channel, envelope, registration.Timeout, cancellationToken);
-            await using var enumerator = stream.GetAsyncEnumerator(cancellationToken);
-            while (true)
+            await foreach (var item in _executor.ExecuteStreamAsync(
+                               context,
+                               _streamPreparationPipeline,
+                               current => CreateStreamResponses(
+                                   current,
+                                   method,
+                                   registration,
+                                   transport,
+                                   current.CancellationToken),
+                               cancellationToken)
+                               .ConfigureAwait(false))
             {
-                bool hasNext;
+                TransportEnvelope materializedItem;
                 try
                 {
-                    hasNext = await enumerator.MoveNextAsync().ConfigureAwait(false);
+                    materializedItem = await _payloadMaterializer.MaterializeAsync(
+                            item,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    totalBytes += materializedItem.Body.Length;
+                    if (_payloadOffloader.Policy is { } policy &&
+                        totalBytes > policy.MaxStoredPayloadBytes)
+                    {
+                        throw new LargePayloadException(
+                            LargePayloadFailureCodes.TooLarge,
+                            $"The stream exceeded its configured total serialized size of " +
+                            $"{policy.MaxStoredPayloadBytes} bytes.");
+                    }
+                    ThrowIfFault(materializedItem);
                 }
                 catch (Exception exception)
                 {
@@ -153,26 +175,7 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
                     throw;
                 }
 
-                if (!hasNext)
-                {
-                    outcome = "success";
-                    activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Ok);
-                    yield break;
-                }
-
-                var item = enumerator.Current;
-                try
-                {
-                    ThrowIfFault(item);
-                }
-                catch (Exception exception)
-                {
-                    outcome = AnyProtocolDiagnostics.GetOutcome(exception, cancellationToken);
-                    TracingFilter.SetError(activity, exception, cancellationToken);
-                    throw;
-                }
-
-                if (item.Headers.Get(HeaderNames.MessageType, MessageType.StreamItem) ==
+                if (materializedItem.Headers.Get(HeaderNames.MessageType, MessageType.StreamItem) ==
                     MessageType.StreamComplete)
                 {
                     outcome = "success";
@@ -184,7 +187,7 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
                 try
                 {
                     value = await _serializer.DeserializeAsync<TItem>(
-                            item.Body,
+                            materializedItem.Body,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -200,6 +203,8 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
                     yield return value;
                 }
             }
+            outcome = "success";
+            activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Ok);
         }
         finally
         {
@@ -244,7 +249,7 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
         {
             Message = request,
             Method = method,
-            Services = _services
+            Invocation = new MessageInvocation(cancellationToken)
         };
         context.Items[DiagnosticContext.TransportNameKey] =
             GetRegistration(method.ContractType).TransportName;
@@ -257,16 +262,12 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
         MessageType messageType,
         CancellationToken cancellationToken)
     {
-        var headers = new MessageHeaders
-        {
-            [HeaderNames.MessageId] = Guid.NewGuid().ToString("N"),
-            [HeaderNames.Channel] = method.Channel,
-            [HeaderNames.Contract] = method.ContractName,
-            [HeaderNames.Method] = method.MethodName,
-            [HeaderNames.MessageType] = messageType.ToString(),
-            [HeaderNames.ContentType] = ContentType,
-            [HeaderNames.SentAt] = DateTimeOffset.UtcNow.ToString("O")
-        };
+        var headers = _envelopeFactory.CreateOutboundHeaders(
+            messageType,
+            method.Channel,
+            method.ContractName,
+            method.MethodName,
+            ContentType);
         if (method.PartitionKeyProperty is not null)
         {
             var value = request is null ? null : method.PartitionKeyProperty.GetValue(request);
@@ -285,14 +286,43 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
         return new TransportEnvelope(headers, body);
     }
 
+    private async IAsyncEnumerable<TransportEnvelope> CreateStreamResponses(
+        IMessageContext context,
+        ContractMethodDescriptor method,
+        ClientRegistration registration,
+        IMessagingProtocol transport,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var envelope = await _payloadOffloader.OffloadAsync(
+                new TransportEnvelope(context.Headers, context.Body),
+                cancellationToken)
+            .ConfigureAwait(false);
+        context.Headers[HeaderNames.Deadline] ??= _envelopeFactory.GetUtcNow()
+            .Add(registration.Timeout)
+            .ToString("O");
+        var responses = transport is IStreamingTransport streamingTransport
+            ? streamingTransport.StreamAsync(method.Channel, envelope, context.CancellationToken)
+            : _streamEngines.GetOrAdd(
+                    transport,
+                    value => new StreamEngine(value, envelopeFactory: _envelopeFactory))
+                .StreamAsync(method.Channel, envelope, registration.Timeout, context.CancellationToken);
+        await foreach (var response in responses.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            yield return response;
+        }
+    }
+
     private async ValueTask InvokeTransportAsync(IMessageContext context)
     {
         var contractName = context.Headers[HeaderNames.Contract]!;
         var registration = _registrations.Values.Single(
             candidate => (candidate.ContractType.FullName ?? candidate.ContractType.Name) == contractName);
         var transport = _transports.GetRequired(registration.TransportName);
-        var envelope = new TransportEnvelope(context.Headers, context.Body);
-        context.Headers[HeaderNames.Deadline] ??= DateTimeOffset.UtcNow
+        var envelope = await _payloadOffloader.OffloadAsync(
+                new TransportEnvelope(context.Headers, context.Body),
+                context.CancellationToken)
+            .ConfigureAwait(false);
+        context.Headers[HeaderNames.Deadline] ??= _envelopeFactory.GetUtcNow()
             .Add(registration.Timeout)
             .ToString("O");
 
@@ -323,7 +353,9 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
             return;
         }
 
-        var engine = _engines.GetOrAdd(transport, static value => new RequestReplyEngine(value));
+        var engine = _engines.GetOrAdd(
+            transport,
+            value => new RequestReplyEngine(value, _envelopeFactory));
         var retry = new RetryFilter(
             new RetryOptions
             {
@@ -334,14 +366,14 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
                 context,
                 async retryContext =>
                 {
-                    retryContext.Response = await engine.RequestAsync(
+                    MessageContextRuntime.Get(retryContext).Result.Response = await engine.RequestAsync(
                             retryContext.Channel,
                             envelope,
                             registration.Timeout,
                             retryContext.CancellationToken,
                             context.Method)
                         .ConfigureAwait(false);
-                    ThrowIfFault(retryContext.Response);
+                    ThrowIfFault(MessageContextRuntime.Get(retryContext).Result.Response!);
                 })
             .ConfigureAwait(false);
     }
@@ -368,4 +400,5 @@ public sealed class AnyProtocolClientInvoker : IClientInvoker, IAsyncDisposable
 
         throw new AnyProtocolFaultException(fault);
     }
+
 }

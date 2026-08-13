@@ -16,16 +16,17 @@ public sealed class ValidationFilter : IMessageFilter
     /// <returns>A task that represents the asynchronous operation.</returns>
     public async ValueTask InvokeAsync(IMessageContext context, MessageFilterDelegate next)
     {
-        if (context.Message is not null && context.Services is not null)
+        var services = MessageContextRuntime.Get(context).Services;
+        if (context.Message is not null && services is not null && context.Method is not null)
         {
-            var validatorType = typeof(IRequestValidator<>).MakeGenericType(context.Message.GetType());
-            var validator = context.Services.Resolve(validatorType);
+            var validatorType = typeof(IRequestValidator<>).MakeGenericType(context.Method.RequestType);
+            var validator = services.Resolve(validatorType);
             if (validator is not null)
             {
-                var validate = validatorType.GetMethod(nameof(IRequestValidator<object>.RequestAsync))!;
+                var validate = validatorType.GetMethod(nameof(IRequestValidator<object>.ValidateAsync))!;
                 var pending = (ValueTask<IValidationResult>)validate.Invoke(
                     validator,
-                    [context.Message])!;
+                    [context.Message, context.CancellationToken])!;
                 var result = await pending.ConfigureAwait(false);
                 if (!result.IsValid)
                 {

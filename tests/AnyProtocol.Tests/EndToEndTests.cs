@@ -85,7 +85,9 @@ public sealed class OrderPlacedHandler : IEventConsumer<OrderPlaced>
 
 public sealed class OrderValidator : IRequestValidator<PlaceOrderRequest>
 {
-    public ValueTask<IValidationResult> RequestAsync(PlaceOrderRequest request)
+    public ValueTask<IValidationResult> ValidateAsync(
+        PlaceOrderRequest request,
+        CancellationToken cancellationToken = default)
     {
         var result = new ValidationResult();
         if (request.OrderId == "invalid")
@@ -113,8 +115,13 @@ public sealed class EndToEndTests
             .AddServer<IOrderService, OrderService>(server => server.UseTransport("memory"))
             .AddEventHandler<OrderPlaced, OrderPlacedHandler>(
                 handler => handler.UseTransport("memory"))
+            .AddClientFilter(new ValidationFilter())
             .AddServerFilter(new ValidationFilter()));
         await using var provider = services.BuildServiceProvider();
+        Assert.True(
+            GeneratedEventDispatchRegistry.IsRegistered(
+                typeof(OrderPlaced),
+                typeof(OrderPlacedHandler)));
         var bus = provider.GetRequiredService<IAnyProtocolBus>();
         await bus.StartAsync();
         var client = provider.GetRequiredService<IOrderService>();
@@ -157,6 +164,28 @@ public sealed class EndToEndTests
 
         Assert.Equal("handler_failed", exception.Fault.Code);
         Assert.Contains("broken", exception.Message);
+    }
+
+    [Fact]
+    public async Task Outbound_operations_are_rejected_while_the_bus_is_draining()
+    {
+        var services = new ServiceCollection();
+        services.AddAnyProtocol(link => link
+            .UseSerializer(new TextJsonMessageSerializer())
+            .AddTransport("memory", new InMemoryMessagingProtocol())
+            .AddClient<IOrderService>(client => client.UseTransport("memory"))
+            .AddServer<IOrderService, OrderService>(server => server.UseTransport("memory")));
+        await using var provider = services.BuildServiceProvider();
+
+        _ = provider.GetRequiredService<IAnyProtocolBus>();
+        var client = provider.GetRequiredService<IOrderService>();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await client.PlaceAsync(
+                new PlaceOrderRequest("blocked"),
+                CancellationToken.None));
+
+        Assert.Contains("draining", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

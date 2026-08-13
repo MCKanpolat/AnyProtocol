@@ -1,5 +1,19 @@
 # Deployment
 
+## Local infrastructure verification
+
+`dotnet test AnyProtocol.slnx` starts Kafka, RabbitMQ, and Redis Testcontainers automatically when
+external endpoints are not configured. For a strict local release check, require container startup:
+
+```powershell
+$env:ANYPROTOCOL_REQUIRE_BROKER_TESTS = "true"
+dotnet test AnyProtocol.slnx
+```
+
+An unavailable required container fails its fixture with an infrastructure-specific message. Without
+strict mode, unavailable infrastructure is reported as skipped rather than being mixed with passing
+unit tests.
+
 ## ASP.NET Core hosting
 
 REST servers require all three calls:
@@ -63,12 +77,13 @@ Set probe timings from measured broker/channel startup behavior.
 
 The Microsoft DI package registers an `IHostedService`. On host shutdown it:
 
-1. changes bus state to `Stopping`;
-2. cancels the bus run token;
-3. disposes active subscriptions;
-4. changes state to `Stopped`.
+1. changes bus state to `Draining` and closes the shared admission gate;
+2. stops accepting new subscription callbacks;
+3. waits for admitted handlers up to `ShutdownOptions.DrainTimeout`;
+4. cancels remaining work and waits up to `ShutdownOptions.ForcedCancellationTimeout`;
+5. disposes subscriptions and transports, then changes state to `Stopped`.
 
-Final async disposal also disposes transports. Kafka flushes the producer for `ProducerFlushTimeout` (10 seconds by default). In-flight handlers receive cancellation through the bus lifetime; AnyProtocol does not implement a separate application-level drain queue. Configure ASP.NET Core host shutdown timeout and the Kubernetes termination grace period to cover handler cancellation and transport disposal.
+The default drain timeout is 30 seconds and the forced-cancellation timeout is 5 seconds. Configure ASP.NET Core host shutdown timeout and the Kubernetes termination grace period to exceed those bounds plus transport flush allowance. Native REST, gRPC, and MCP endpoints should share the registered `IRequestAdmission` singleton; requests rejected after drain begins must use their transport-specific retryable response (`503`/`Unavailable`/MCP retryable error).
 
 ## Kafka networking and scaling
 
@@ -104,4 +119,4 @@ Final async disposal also disposes transports. Kafka flushes the producer for `P
 - REST non-success responses become `FaultMessage` envelopes; direct send maps validation faults to `AnyProtocolValidationException` and other faults to `AnyProtocolFaultException`.
 - gRPC status failures become `IOException`, cancellation becomes `OperationCanceledException`, and stream deadline expiry becomes `TimeoutException`.
 - Kafka handler faults for events are sent to the configured dead-letter topic when enabled; disabling dead-lettering makes that path fail.
-- ZeroMQ decode/handler failures are written to `System.Diagnostics.Trace`; deploy a trace listener if those signals are required.
+- ZeroMQ socket-loop, decode, handler, pending-send, and forced-shutdown failures use `ILogWriterFactory` with stable event IDs. The default writer is a no-op; register `AnyProtocol.Logging.Microsoft` or another adapter for application logs.

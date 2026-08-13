@@ -105,7 +105,10 @@ public sealed class ContractProxyTests
                     "kafka",
                     TimeSpan.FromSeconds(1),
                     1)
-            ]);
+            ],
+            new OutboundOperationExecutor(
+                new SingleServiceResolverFactory(typeof(object), new object()),
+                new AnyProtocol.Services.RequestAdmissionCoordinator()));
 
         await invoker.SendAsync(method, new PartitionedRequest("customer-42", "created"));
 
@@ -354,7 +357,7 @@ public sealed class ContractProxyTests
     {
         public TransportEnvelope? Envelope { get; private set; }
 
-        public TransportCapabilities Capabilities => TransportCapabilities.PublishSubscribe;
+        public TransportCapabilities Capabilities => TransportCapabilities.None;
 
         public ValueTask SendAsync(
             string channel,
