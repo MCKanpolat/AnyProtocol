@@ -79,7 +79,7 @@ public sealed class TransportInterfaceTests
 
     private sealed class MetadataOnlyTransport : IMessagingProtocol
     {
-        public TransportCapabilities Capabilities => TransportCapabilities.PublishSubscribe;
+        public TransportCapabilities Capabilities => TransportCapabilities.None;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

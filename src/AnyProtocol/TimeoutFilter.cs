@@ -24,18 +24,14 @@ public sealed class TimeoutFilter(TimeSpan timeout) : IMessageFilter
         var originalToken = context.CancellationToken;
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(originalToken);
         timeoutSource.CancelAfter(timeout);
-        context.CancellationToken = timeoutSource.Token;
         try
         {
-            await next(context).ConfigureAwait(false);
+            await next(MessageContextRuntime.WithCancellation(context, timeoutSource.Token))
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!originalToken.IsCancellationRequested)
         {
             throw new TimeoutException($"Message '{context.Channel}' exceeded timeout '{timeout}'.");
-        }
-        finally
-        {
-            context.CancellationToken = originalToken;
         }
     }
 }

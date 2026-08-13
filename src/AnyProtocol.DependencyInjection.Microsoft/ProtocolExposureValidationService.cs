@@ -5,13 +5,13 @@ using Microsoft.Extensions.Hosting;
 namespace AnyProtocol.DependencyInjection.Microsoft;
 
 internal sealed class ProtocolExposureValidationService(
-    LinkConfiguration configuration,
+    RuntimePlan runtimePlan,
     ProtocolExposureRegistry exposureRegistry,
     IEnumerable<IProtocolExposureDeclaration> declarations) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var requiresMcp = configuration.ServerRegistrations.Any(
+        var requiresMcp = runtimePlan.ServerRegistrations.Any(
             registration => registration.Protocols.Contains(ProtocolKey.Mcp));
         if (!requiresMcp)
         {

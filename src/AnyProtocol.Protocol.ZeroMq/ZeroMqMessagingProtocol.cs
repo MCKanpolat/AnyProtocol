@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Channels;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Encoder.Abstraction;
+using AnyProtocol.Logging.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using NetMQ;
 using NetMQ.Sockets;
@@ -15,6 +16,7 @@ namespace AnyProtocol.Protocol.ZeroMq;
 public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTransport, ITransportReadiness
 {
     private readonly IEnvelopeCodec _codec;
+    private readonly ILogWriter _logger;
     private readonly ZeroMqProtocolOptions _options;
     private readonly Channel<OutgoingMessage> _outbound;
     private readonly ConcurrentDictionary<string, SubscriptionSet> _subscriptions =
@@ -30,7 +32,7 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
     /// </summary>
     /// <param name="options">The options that control the operation.</param>
     public ZeroMqMessagingProtocol(ZeroMqProtocolOptions options)
-        : this(options, new BinaryEnvelopeCodec())
+        : this(options, new BinaryEnvelopeCodec(), null)
     {
     }
 
@@ -39,13 +41,19 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
     /// </summary>
     /// <param name="options">The options that control the operation.</param>
     /// <param name="codec">The envelope codec.</param>
-    public ZeroMqMessagingProtocol(ZeroMqProtocolOptions options, IEnvelopeCodec codec)
+    /// <param name="logWriterFactory">The logging writer factory.</param>
+    public ZeroMqMessagingProtocol(
+        ZeroMqProtocolOptions options,
+        IEnvelopeCodec codec,
+        ILogWriterFactory? logWriterFactory = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(codec);
         options.Validate();
         _options = options;
         _codec = codec;
+        _logger = (logWriterFactory ?? NullLogWriterFactory.Instance)
+            .CreateLogWriter(nameof(ZeroMqMessagingProtocol));
         _outbound = Channel.CreateBounded<OutgoingMessage>(
             new BoundedChannelOptions(options.HighWatermark)
             {
@@ -67,9 +75,7 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
     /// Gets the optional transport capabilities supported by this protocol.
     /// </summary>
     /// <value>The capabilities.</value>
-    public TransportCapabilities Capabilities =>
-        TransportCapabilities.PublishSubscribe |
-        TransportCapabilities.CompetingConsumers;
+    public TransportCapabilities Capabilities => TransportCapabilities.CompetingConsumers;
 
     /// <summary>
     /// Gets the delivery and ordering guarantees provided by this protocol.
@@ -80,7 +86,6 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
         DeliveryGuarantee = TransportDeliveryGuarantee.AtMostOnce,
         Ordering = TransportOrdering.PerChannel,
         Durability = TransportDurability.Volatile,
-        SupportsPublishSubscribe = true,
         SupportsCompetingConsumers = true,
         SupportsBackpressure = true,
         SupportsCancellation = true
@@ -120,7 +125,7 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
     /// <param name="options">The options that control the operation.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the subscribe async.</returns>
-    public ValueTask<IAsyncDisposable> SubscribeAsync(
+    public ValueTask<ITransportSubscription> SubscribeAsync(
         string channel,
         Func<TransportEnvelope, CancellationToken, ValueTask> handler,
         SubscriptionOptions? options = null,
@@ -145,9 +150,10 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             options.ConsumerGroup,
             options.MaxConcurrency,
             handler,
-            RemoveSubscription);
+            RemoveSubscription,
+            _logger);
         set.Add(subscription);
-        return ValueTask.FromResult<IAsyncDisposable>(subscription);
+        return ValueTask.FromResult<ITransportSubscription>(subscription);
     }
 
     /// <summary>
@@ -232,8 +238,16 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
         }
         catch (Exception exception)
         {
+            AnyProtocolDiagnostics.RecordTransportFailure("zeromq", "socket_loop");
             _ready.TrySetException(exception);
             FailPending(exception);
+            _logger.LogEvent(
+                AnyProtocolLogEvents.ZeroMqSocketLoopFailed,
+                LogSeverity.Error,
+                "The ZeroMQ socket loop failed during {0}; exception type '{1}'.",
+                exception,
+                _options.Role,
+                exception.GetType().FullName);
             if (!_stopping.IsCancellationRequested)
             {
                 throw;
@@ -320,8 +334,12 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
         }
         catch (Exception exception)
         {
-            System.Diagnostics.Trace.TraceError(
+            AnyProtocolDiagnostics.RecordTransportFailure("zeromq", "decode");
+            _logger.LogEvent(
+                AnyProtocolLogEvents.ZeroMqDecodeFailed,
+                LogSeverity.Error,
                 "Failed to decode a ZeroMQ message; exception type '{0}'.",
+                exception,
                 exception.GetType().FullName);
         }
     }
@@ -345,9 +363,23 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
 
     private void FailPending(Exception exception)
     {
+        var failed = 0;
         while (_outbound.Reader.TryRead(out var message))
         {
+            failed++;
             message.Completion.TrySetException(exception);
+        }
+
+        if (failed != 0)
+        {
+            AnyProtocolDiagnostics.RecordTransportFailure("zeromq", "pending_outbound");
+            _logger.LogEvent(
+                AnyProtocolLogEvents.ZeroMqPendingOutboundFailed,
+                LogSeverity.Error,
+                "Failed {0} pending ZeroMQ outbound messages; exception type '{1}'.",
+                exception,
+                failed,
+                exception.GetType().FullName);
         }
     }
 
@@ -422,13 +454,16 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
         }
     }
 
-    private sealed class Subscription : IAsyncDisposable
+    private sealed class Subscription : ITransportSubscription
     {
         private readonly Channel<TransportEnvelope> _queue;
         private readonly CancellationTokenSource _stopping = new();
         private readonly Task[] _workers;
         private readonly Func<TransportEnvelope, CancellationToken, ValueTask> _handler;
         private readonly Action<Subscription> _remove;
+        private readonly ILogWriter _logger;
+        private readonly object _acceptingGate = new();
+        private bool _accepting = true;
         private int _disposed;
 
         public Subscription(
@@ -436,12 +471,14 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             string? consumerGroup,
             int maxConcurrency,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-            Action<Subscription> remove)
+            Action<Subscription> remove,
+            ILogWriter logger)
         {
             Channel = channel;
             ConsumerGroup = consumerGroup;
             _handler = handler;
             _remove = remove;
+            _logger = logger;
             _queue = System.Threading.Channels.Channel.CreateUnbounded<TransportEnvelope>(
                 new UnboundedChannelOptions
                 {
@@ -460,10 +497,35 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
 
         public void Enqueue(TransportEnvelope envelope, CancellationToken cancellationToken)
         {
-            if (!_queue.Writer.TryWrite(envelope))
+            lock (_acceptingGate)
             {
-                _ = _queue.Writer.WriteAsync(envelope, cancellationToken);
+                if (!_accepting)
+                {
+                    return;
+                }
+
+                if (!_queue.Writer.TryWrite(envelope))
+                {
+                    _ = _queue.Writer.WriteAsync(envelope, cancellationToken);
+                }
             }
+        }
+
+        public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_acceptingGate)
+            {
+                if (!_accepting)
+                {
+                    return ValueTask.CompletedTask;
+                }
+
+                _accepting = false;
+            }
+
+            _remove(this);
+            return ValueTask.CompletedTask;
         }
 
         public async ValueTask DisposeAsync()
@@ -473,7 +535,7 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
                 return;
             }
 
-            _remove(this);
+            _ = StopAcceptingAsync();
             _queue.Writer.TryComplete();
             _stopping.Cancel();
             try
@@ -496,7 +558,22 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             {
                 try
                 {
-                    await _handler(envelope, _stopping.Token).ConfigureAwait(false);
+                    ValueTask handling;
+                    lock (_acceptingGate)
+                    {
+                        if (!_accepting)
+                        {
+                            break;
+                        }
+
+                        handling = _handler(envelope, _stopping.Token);
+                    }
+
+                    await handling.ConfigureAwait(false);
+                }
+                catch (MessageAdmissionRejectedException)
+                {
+                    break;
                 }
                 catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
                 {
@@ -504,8 +581,12 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
                 }
                 catch (Exception exception)
                 {
-                    System.Diagnostics.Trace.TraceError(
+                    AnyProtocolDiagnostics.RecordTransportFailure("zeromq", "handler");
+                    _logger.LogEvent(
+                        AnyProtocolLogEvents.ZeroMqHandlerFailed,
+                        LogSeverity.Error,
                         "A ZeroMQ subscription handler failed; exception type '{0}'.",
+                        exception,
                         exception.GetType().FullName);
                 }
             }

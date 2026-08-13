@@ -6,6 +6,8 @@
   href: CONFIGURATION.md
 - name: Envelope codecs
   href: ENCODERS.md
+- name: Large payload offload
+  href: LARGE_PAYLOADS.md
 - name: Protocols
   items:
   - name: InMemory
@@ -32,5 +34,9 @@
   href: OBSERVABILITY.md
 - name: Security
   href: SECURITY.md
+- name: Support policy
+  href: SUPPORT_POLICY.md
+- name: Architecture
+  href: ARCHITECTURE.md
 - name: API reference
   href: api/

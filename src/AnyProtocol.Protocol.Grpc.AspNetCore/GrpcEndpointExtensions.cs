@@ -1,4 +1,5 @@
 using AnyProtocol.Configuration;
+using AnyProtocol.Abstraction;
 using AnyProtocol.Encoder.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using Microsoft.AspNetCore.Builder;
@@ -45,11 +46,12 @@ public static class GrpcEndpointExtensions
         services.AddSingleton<GrpcEndpointMarker>();
         services.AddTransient<AnyProtocolGrpcService>(serviceProvider =>
             new AnyProtocolGrpcService(
-                serviceProvider.GetRequiredService<LinkConfiguration>(),
-                serviceProvider.GetRequiredService<ContractDescriptorFactory>(),
+                serviceProvider.GetRequiredService<RuntimePlan>(),
                 serviceProvider.GetRequiredService<TransportRegistry>(),
                 serviceProvider.GetRequiredService<MessageDispatcher>(),
-                serviceProvider.GetService<IEnvelopeCodec>() ?? new BinaryEnvelopeCodec()));
+                serviceProvider.GetService<IEnvelopeCodec>() ?? new BinaryEnvelopeCodec(),
+                serviceProvider.GetRequiredService<IMessageEnvelopeFactory>(),
+                serviceProvider.GetRequiredService<IRequestAdmission>()));
         return services;
     }
 

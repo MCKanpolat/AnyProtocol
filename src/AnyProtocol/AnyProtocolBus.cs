@@ -1,47 +1,63 @@
 using System.Runtime.ExceptionServices;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
+using AnyProtocol.Logging.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 
 namespace AnyProtocol;
 
 /// <summary>
-/// Coordinates message publishing, request/reply calls, subscriptions, and bus lifecycle operations.
+/// Coordinates inbound subscriptions and bus lifecycle operations.
 /// </summary>
 public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
 {
-    private readonly LinkConfiguration _configuration;
-    private readonly ContractDescriptorFactory _descriptorFactory;
     private readonly TransportRegistry _transports;
-    private readonly MessageDispatcher _dispatcher;
+    private readonly InboundSubscriptionHost _subscriptionHost;
+    private readonly IRequestAdmission _admission;
+    private readonly OutboundOperationLifetime _outboundLifetime;
+    private readonly ShutdownOptions _shutdownOptions;
+    private readonly ILogWriter _logger;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
-    private readonly List<IAsyncDisposable> _subscriptions = [];
-    private CancellationTokenSource? _runCancellation;
     private int _state = (int)AnyProtocolBusState.Created;
 
     /// <summary>
     /// Initializes a new instance of the AnyProtocolBus class.
     /// </summary>
-    /// <param name="configuration">The configuration.</param>
-    /// <param name="descriptorFactory">The descriptor factory.</param>
+    /// <param name="runtimePlan">The immutable runtime plan.</param>
     /// <param name="transports">The transports.</param>
     /// <param name="dispatcher">The dispatcher.</param>
+    /// <param name="admission">The shared request admission coordinator.</param>
+    /// <param name="shutdownOptions">The bounded shutdown policy.</param>
+    /// <param name="logWriterFactory">The logging writer factory.</param>
+    /// <param name="outboundLifetime">The cancellation boundary for outbound operations.</param>
     public AnyProtocolBus(
-        LinkConfiguration configuration,
-        ContractDescriptorFactory descriptorFactory,
+        RuntimePlan runtimePlan,
         TransportRegistry transports,
-        MessageDispatcher dispatcher)
+        MessageDispatcher dispatcher,
+        IRequestAdmission? admission = null,
+        ShutdownOptions? shutdownOptions = null,
+        ILogWriterFactory? logWriterFactory = null,
+        OutboundOperationLifetime? outboundLifetime = null)
     {
-        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _descriptorFactory = descriptorFactory ?? throw new ArgumentNullException(nameof(descriptorFactory));
+        ArgumentNullException.ThrowIfNull(runtimePlan);
         _transports = transports ?? throw new ArgumentNullException(nameof(transports));
-        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        ArgumentNullException.ThrowIfNull(dispatcher);
+        _admission = admission ?? new Services.RequestAdmissionCoordinator();
+        _outboundLifetime = outboundLifetime ?? new OutboundOperationLifetime();
+        _shutdownOptions = shutdownOptions ?? new ShutdownOptions();
+        _shutdownOptions.Validate();
+        _logger = (logWriterFactory ?? NullLogWriterFactory.Instance)
+            .CreateLogWriter(nameof(AnyProtocolBus));
+        _subscriptionHost = new InboundSubscriptionHost(
+            new InboundRouteTable(runtimePlan, transports),
+            new InboundMessageRouter(dispatcher, _admission, _logger));
+        _admission.BeginDrain();
     }
 
     /// <summary>
-    /// Gets a value indicating whether is started applies.
+    /// Gets a value indicating whether the bus is started.
     /// </summary>
-    /// <value>true when is started applies; otherwise, false.</value>
+    /// <value>true when the bus is started; otherwise, false.</value>
     public bool IsStarted => State == AnyProtocolBusState.Started;
 
     /// <summary>
@@ -52,9 +68,9 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
         (AnyProtocolBusState)Volatile.Read(ref _state);
 
     /// <summary>
-    /// Performs the start async operation.
+    /// Starts inbound transport subscriptions.
     /// </summary>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
+    /// <param name="cancellationToken">The token used to cancel startup.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     public async ValueTask StartAsync(CancellationToken cancellationToken = default)
     {
@@ -73,38 +89,22 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
             }
 
             Volatile.Write(ref _state, (int)AnyProtocolBusState.Starting);
-            var runCancellation = new CancellationTokenSource();
-            var startedSubscriptions = new List<IAsyncDisposable>();
             try
             {
-                await StartSubscriptionsAsync(
-                        startedSubscriptions,
-                        runCancellation.Token,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                _subscriptions.AddRange(startedSubscriptions);
-                _runCancellation = runCancellation;
+                _outboundLifetime.StartRun();
+                _admission.StartAccepting();
+                await _subscriptionHost.StartAsync(cancellationToken).ConfigureAwait(false);
                 Volatile.Write(ref _state, (int)AnyProtocolBusState.Started);
             }
-            catch (Exception startupException)
+            catch
             {
-                runCancellation.Cancel();
-                var rollbackException = await DisposeSubscriptionsAsync(startedSubscriptions)
-                    .ConfigureAwait(false);
-                if (rollbackException is not null)
-                {
-                    _subscriptions.AddRange(startedSubscriptions);
-                    _runCancellation = runCancellation;
-                    Volatile.Write(ref _state, (int)AnyProtocolBusState.Stopping);
-                    throw new AggregateException(
-                        "AnyProtocol startup failed and subscription rollback also failed.",
-                        startupException,
-                        rollbackException);
-                }
-
-                runCancellation.Dispose();
-                Volatile.Write(ref _state, (int)AnyProtocolBusState.Stopped);
-                ExceptionDispatchInfo.Capture(startupException).Throw();
+                _admission.BeginDrain();
+                _outboundLifetime.CancelRun();
+                Volatile.Write(
+                    ref _state,
+                    (int)(_subscriptionHost.HasActiveRun
+                        ? AnyProtocolBusState.Stopping
+                        : AnyProtocolBusState.Stopped));
                 throw;
             }
         }
@@ -115,9 +115,9 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
     }
 
     /// <summary>
-    /// Performs the stop async operation.
+    /// Stops accepting messages and drains inbound work.
     /// </summary>
-    /// <param name="cancellationToken">The token used to cancel the operation.</param>
+    /// <param name="cancellationToken">The token used to cancel the graceful drain.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     public async ValueTask StopAsync(CancellationToken cancellationToken = default)
     {
@@ -135,27 +135,114 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
                 return;
             }
 
-            if (State is not (AnyProtocolBusState.Started or AnyProtocolBusState.Stopping))
+            if (State is not (
+                AnyProtocolBusState.Started or
+                AnyProtocolBusState.Draining or
+                AnyProtocolBusState.Stopping))
             {
                 throw new InvalidOperationException($"Cannot stop AnyProtocol while it is {State}.");
             }
 
-            if (State == AnyProtocolBusState.Started)
+            Exception? stopAcceptingException = null;
+            OperationCanceledException? callerCancellation = null;
+            if (State is AnyProtocolBusState.Started or AnyProtocolBusState.Draining)
             {
+                Volatile.Write(ref _state, (int)AnyProtocolBusState.Draining);
+                _admission.BeginDrain();
+                stopAcceptingException = await _subscriptionHost.StopAcceptingAsync()
+                    .ConfigureAwait(false);
+                var drained = false;
+                try
+                {
+                    drained = await _admission.WaitForIdleAsync(
+                            _shutdownOptions.DrainTimeout,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException exception)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    callerCancellation = exception;
+                    drained = false;
+                }
+
+                if (!drained)
+                {
+                    _logger.LogEvent(
+                        AnyProtocolLogEvents.ForcedShutdownCancellation,
+                        LogSeverity.Warning,
+                        "Forced shutdown cancellation started with {0} active operations.",
+                        null,
+                        _admission.ActiveCount);
+                    AnyProtocolDiagnostics.RecordForcedShutdownCancellation(_admission.ActiveCount);
+                    _subscriptionHost.CancelRun();
+                    _outboundLifetime.CancelRun();
+                    drained = await _admission.WaitForIdleAsync(
+                            _shutdownOptions.ForcedCancellationTimeout)
+                        .ConfigureAwait(false);
+                }
+
                 Volatile.Write(ref _state, (int)AnyProtocolBusState.Stopping);
-                _runCancellation?.Cancel();
+                if (!drained)
+                {
+                    var timeoutException = new TimeoutException(
+                        $"AnyProtocol still has {_admission.ActiveCount} active operation(s) after " +
+                        $"the forced-cancellation timeout of " +
+                        $"{_shutdownOptions.ForcedCancellationTimeout}.",
+                        callerCancellation);
+                    if (stopAcceptingException is not null)
+                    {
+                        throw new AggregateException(
+                            "Stopping AnyProtocol timed out after subscription quiesce failed.",
+                            stopAcceptingException,
+                            timeoutException);
+                    }
+
+                    throw timeoutException;
+                }
+            }
+            else if (_admission.ActiveCount != 0)
+            {
+                _subscriptionHost.CancelRun();
+                _outboundLifetime.CancelRun();
+                var drained = await _admission.WaitForIdleAsync(
+                        _shutdownOptions.ForcedCancellationTimeout)
+                    .ConfigureAwait(false);
+                if (!drained)
+                {
+                    throw new TimeoutException(
+                        $"AnyProtocol still has {_admission.ActiveCount} active operation(s) after " +
+                        $"the forced-cancellation timeout of " +
+                        $"{_shutdownOptions.ForcedCancellationTimeout}.");
+                }
             }
 
-            var disposalException = await DisposeSubscriptionsAsync(_subscriptions)
+            var disposalException = await _subscriptionHost.DisposeSubscriptionsAsync()
                 .ConfigureAwait(false);
+            if (stopAcceptingException is not null && disposalException is not null)
+            {
+                throw new AggregateException(
+                    "Stopping AnyProtocol failed while quiescing and disposing subscriptions.",
+                    stopAcceptingException,
+                    disposalException);
+            }
+
+            if (stopAcceptingException is not null)
+            {
+                throw stopAcceptingException;
+            }
+
             if (disposalException is not null)
             {
                 throw disposalException;
             }
 
-            _runCancellation?.Dispose();
-            _runCancellation = null;
+            _subscriptionHost.CompleteRun();
             Volatile.Write(ref _state, (int)AnyProtocolBusState.Stopped);
+            if (callerCancellation is not null)
+            {
+                ExceptionDispatchInfo.Capture(callerCancellation).Throw();
+            }
         }
         finally
         {
@@ -164,7 +251,7 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
     }
 
     /// <summary>
-    /// Asynchronously releases resources owned by this instance.
+    /// Stops inbound work and releases subscriptions and transports.
     /// </summary>
     /// <returns>A task that represents the asynchronous operation.</returns>
     public async ValueTask DisposeAsync()
@@ -177,10 +264,38 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
                 return;
             }
 
-            Volatile.Write(ref _state, (int)AnyProtocolBusState.Stopping);
-            _runCancellation?.Cancel();
             var exceptions = new List<Exception>();
-            var subscriptionException = await DisposeSubscriptionsAsync(_subscriptions)
+            Volatile.Write(ref _state, (int)AnyProtocolBusState.Draining);
+            _admission.BeginDrain();
+            var stopAcceptingException = await _subscriptionHost.StopAcceptingAsync()
+                .ConfigureAwait(false);
+            _subscriptionHost.CancelRun();
+            _outboundLifetime.CancelRun();
+            if (stopAcceptingException is not null)
+            {
+                exceptions.Add(stopAcceptingException);
+            }
+
+            Volatile.Write(ref _state, (int)AnyProtocolBusState.Stopping);
+            var drained = await _admission.WaitForIdleAsync(
+                    _shutdownOptions.ForcedCancellationTimeout)
+                .ConfigureAwait(false);
+            if (!drained)
+            {
+                var timeoutException = new TimeoutException(
+                    $"AnyProtocol still has {_admission.ActiveCount} active operation(s) after " +
+                    $"the forced-cancellation timeout of " +
+                    $"{_shutdownOptions.ForcedCancellationTimeout}.");
+                if (exceptions.Count != 0)
+                {
+                    exceptions.Add(timeoutException);
+                    throw new AggregateException("AnyProtocol disposal timed out.", exceptions);
+                }
+
+                throw timeoutException;
+            }
+
+            var subscriptionException = await _subscriptionHost.DisposeSubscriptionsAsync()
                 .ConfigureAwait(false);
             if (subscriptionException is not null)
             {
@@ -198,193 +313,13 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
                 throw new AggregateException("AnyProtocol disposal failed.", exceptions);
             }
 
-            _runCancellation?.Dispose();
-            _runCancellation = null;
+            _subscriptionHost.CompleteRun();
+            _outboundLifetime.Dispose();
             Volatile.Write(ref _state, (int)AnyProtocolBusState.Disposed);
         }
         finally
         {
             _lifecycleLock.Release();
-        }
-    }
-
-    private async ValueTask StartSubscriptionsAsync(
-        ICollection<IAsyncDisposable> subscriptions,
-        CancellationToken runCancellation,
-        CancellationToken startupCancellation)
-    {
-        var routes = _configuration.Servers
-            .SelectMany(
-                registration => registration.Protocols
-                    .Where(protocol => protocol != ProtocolKey.Mcp)
-                    .Where(protocol =>
-                        _transports.GetRequired(protocol) is not INativeServerTransport)
-                    .SelectMany(
-                        protocol => _descriptorFactory.Create(registration.ContractType).Methods
-                            .Select(method => new Route(registration, method, protocol))))
-            .GroupBy(route => (route.Protocol, route.Method.Channel));
-
-        foreach (var routeGroup in routes)
-        {
-            var transport = _transports.GetRequired(routeGroup.Key.Protocol);
-            var subscriptionTransport = transport as ISubscriptionTransport ??
-                throw new InvalidOperationException(
-                    $"Transport '{routeGroup.Key.Protocol}' does not implement ISubscriptionTransport.");
-            var sendTransport = transport as ISendTransport ??
-                throw new InvalidOperationException(
-                    $"Transport '{routeGroup.Key.Protocol}' does not implement ISendTransport.");
-            var routeTable = routeGroup.ToArray();
-            var subscription = await subscriptionTransport.SubscribeAsync(
-                    routeGroup.Key.Channel,
-                    async (envelope, token) =>
-                    {
-                        using var linkedCancellation =
-                            CancellationTokenSource.CreateLinkedTokenSource(token, runCancellation);
-                        var dispatchToken = linkedCancellation.Token;
-                        var contractName = envelope.Headers[HeaderNames.Contract];
-                        var methodName = envelope.Headers[HeaderNames.Method];
-                        var route = routeTable.SingleOrDefault(
-                            candidate =>
-                                candidate.Method.ContractName == contractName &&
-                                candidate.Method.MethodName == methodName);
-                        if (route is null)
-                        {
-                            await _dispatcher.DispatchRoutingFaultAsync(
-                                    envelope,
-                                    transport,
-                                    $"No handler is registered for '{contractName}.{methodName}'.",
-                                    dispatchToken)
-                                .ConfigureAwait(false);
-                            return;
-                        }
-
-                        if (route.Method.Operation == ContractOperation.Stream)
-                        {
-                            var replyTo = envelope.Headers[HeaderNames.ReplyTo];
-                            if (string.IsNullOrWhiteSpace(replyTo))
-                            {
-                                System.Diagnostics.Trace.TraceError(
-                                    "Ignored streaming request '{0}.{1}' without a reply channel.",
-                                    route.Method.ContractName,
-                                    route.Method.MethodName);
-                                return;
-                            }
-
-                            try
-                            {
-                                await foreach (var response in _dispatcher.DispatchStreamAsync(
-                                                       route.Registration,
-                                                       route.Method,
-                                                       envelope,
-                                                       transport,
-                                                       dispatchToken,
-                                                       route.Protocol)
-                                                   .ConfigureAwait(false))
-                                {
-                                    await sendTransport.SendAsync(replyTo, response, dispatchToken)
-                                        .ConfigureAwait(false);
-                                }
-                            }
-                            catch (OperationCanceledException)
-                                when (token.IsCancellationRequested ||
-                                      runCancellation.IsCancellationRequested)
-                            {
-                                throw;
-                            }
-                            catch (Exception exception)
-                            {
-                                System.Diagnostics.Trace.TraceError(
-                                    "Failed to deliver stream '{0}.{1}'; exception type '{2}'.",
-                                    route.Method.ContractName,
-                                    route.Method.MethodName,
-                                    exception.GetType().FullName);
-                            }
-
-                            return;
-                        }
-
-                        await _dispatcher.DispatchAsync(
-                                route.Registration,
-                                route.Method,
-                                envelope,
-                                transport,
-                                dispatchToken,
-                                route.Protocol)
-                            .ConfigureAwait(false);
-                    },
-                    new SubscriptionOptions
-                    {
-                        ConsumerGroup = $"anyprotocol.rpc.{routeGroup.Key.Channel}"
-                    },
-                    startupCancellation)
-                .ConfigureAwait(false);
-            subscriptions.Add(subscription);
-        }
-
-        foreach (var registration in _configuration.Events)
-        {
-            var transport = _transports.GetRequired(registration.TransportName);
-            if (transport is INativeServerTransport)
-            {
-                continue;
-            }
-
-            var subscriptionTransport = transport as ISubscriptionTransport ??
-                throw new InvalidOperationException(
-                    $"Transport '{registration.TransportName}' does not implement ISubscriptionTransport.");
-            var subscription = await subscriptionTransport.SubscribeAsync(
-                    registration.Channel,
-                    (envelope, token) =>
-                    {
-                        var linkedCancellation =
-                            CancellationTokenSource.CreateLinkedTokenSource(token, runCancellation);
-                        return DispatchEventAsync(
-                            registration,
-                            envelope,
-                            transport,
-                            linkedCancellation);
-                    },
-                    new SubscriptionOptions
-                    {
-                        ConsumerGroup = registration.ConsumerGroup is null
-                            ? null
-                            : $"{registration.ConsumerGroup}:{registration.EventType.FullName}"
-                    },
-                    startupCancellation)
-                .ConfigureAwait(false);
-            subscriptions.Add(subscription);
-        }
-    }
-
-    private async ValueTask DispatchEventAsync(
-        EventRegistration registration,
-        TransportEnvelope envelope,
-        IMessagingProtocol transport,
-        CancellationTokenSource linkedCancellation)
-    {
-        using (linkedCancellation)
-        {
-            var messageType = envelope.Headers.Get(
-                HeaderNames.MessageType,
-                MessageType.Event);
-            var contractName = envelope.Headers[HeaderNames.Contract];
-            var expectedContract =
-                registration.EventType.FullName ?? registration.EventType.Name;
-            if (messageType != MessageType.Event ||
-                !string.Equals(contractName, expectedContract, StringComparison.Ordinal))
-            {
-                System.Diagnostics.Trace.TraceWarning(
-                    "Ignored unmatched AnyProtocol event on channel '{0}'.",
-                    registration.Channel);
-                return;
-            }
-
-            await _dispatcher.DispatchEventAsync(
-                    registration,
-                    envelope,
-                    transport,
-                    linkedCancellation.Token)
-                .ConfigureAwait(false);
         }
     }
 
@@ -411,34 +346,4 @@ public sealed class AnyProtocolBus : IAnyProtocolBus, IAsyncDisposable
             _ => new AggregateException(exceptions)
         };
     }
-
-    private static async ValueTask<Exception?> DisposeSubscriptionsAsync(
-        List<IAsyncDisposable> subscriptions)
-    {
-        List<Exception>? exceptions = null;
-        for (var index = subscriptions.Count - 1; index >= 0; index--)
-        {
-            try
-            {
-                await subscriptions[index].DisposeAsync().ConfigureAwait(false);
-                subscriptions.RemoveAt(index);
-            }
-            catch (Exception exception)
-            {
-                (exceptions ??= []).Add(exception);
-            }
-        }
-
-        return exceptions switch
-        {
-            null => null,
-            [var single] => single,
-            _ => new AggregateException(exceptions)
-        };
-    }
-
-    private sealed record Route(
-        ServerRegistration Registration,
-        ContractMethodDescriptor Method,
-        ProtocolKey Protocol);
 }

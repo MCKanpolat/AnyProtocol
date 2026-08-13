@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Encoder.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
+using AnyProtocol.Services;
 using Grpc.Core;
 using Grpc.Net.Client;
 
@@ -20,6 +21,7 @@ public sealed class GrpcMessagingProtocol :
     private readonly GrpcChannel? _channel;
     private readonly GrpcChannel? _ownedChannel;
     private readonly IEnvelopeCodec _codec;
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
     private int _disposed;
 
     /// <summary>
@@ -28,7 +30,7 @@ public sealed class GrpcMessagingProtocol :
     /// <param name="channel">The logical message channel.</param>
     /// <param name="disposeChannel">The dispose channel.</param>
     public GrpcMessagingProtocol(GrpcChannel channel, bool disposeChannel = false)
-        : this(channel, new BinaryEnvelopeCodec(), disposeChannel)
+        : this(channel, new BinaryEnvelopeCodec(), disposeChannel, null)
     {
     }
 
@@ -38,11 +40,16 @@ public sealed class GrpcMessagingProtocol :
     /// <param name="channel">The logical message channel.</param>
     /// <param name="codec">The envelope codec.</param>
     /// <param name="disposeChannel">The dispose channel.</param>
+    /// <param name="envelopeFactory">The message metadata factory.</param>
     public GrpcMessagingProtocol(
         GrpcChannel channel,
         IEnvelopeCodec codec,
-        bool disposeChannel = false)
-        : this(channel?.CreateCallInvoker() ?? throw new ArgumentNullException(nameof(channel)), codec)
+        bool disposeChannel = false,
+        IMessageEnvelopeFactory? envelopeFactory = null)
+        : this(
+            channel?.CreateCallInvoker() ?? throw new ArgumentNullException(nameof(channel)),
+            codec,
+            envelopeFactory)
     {
         _channel = channel;
         _ownedChannel = disposeChannel ? channel : null;
@@ -53,7 +60,7 @@ public sealed class GrpcMessagingProtocol :
     /// </summary>
     /// <param name="callInvoker">The call invoker.</param>
     public GrpcMessagingProtocol(CallInvoker callInvoker)
-        : this(callInvoker, new BinaryEnvelopeCodec())
+        : this(callInvoker, new BinaryEnvelopeCodec(), null)
     {
     }
 
@@ -62,20 +69,22 @@ public sealed class GrpcMessagingProtocol :
     /// </summary>
     /// <param name="callInvoker">The call invoker.</param>
     /// <param name="codec">The envelope codec.</param>
-    public GrpcMessagingProtocol(CallInvoker callInvoker, IEnvelopeCodec codec)
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    public GrpcMessagingProtocol(
+        CallInvoker callInvoker,
+        IEnvelopeCodec codec,
+        IMessageEnvelopeFactory? envelopeFactory = null)
     {
         _callInvoker = callInvoker ?? throw new ArgumentNullException(nameof(callInvoker));
         _codec = codec ?? throw new ArgumentNullException(nameof(codec));
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
     }
 
     /// <summary>
     /// Gets the optional transport capabilities supported by this protocol.
     /// </summary>
     /// <value>The capabilities.</value>
-    public TransportCapabilities Capabilities =>
-        TransportCapabilities.NativeHeaders |
-        TransportCapabilities.NativeRequestReply |
-        TransportCapabilities.NativeStreaming;
+    public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
     /// <summary>
     /// Gets the delivery and ordering guarantees provided by this protocol.
@@ -86,8 +95,6 @@ public sealed class GrpcMessagingProtocol :
         DeliveryGuarantee = TransportDeliveryGuarantee.AtMostOnce,
         Ordering = TransportOrdering.None,
         Durability = TransportDurability.Volatile,
-        SupportsNativeRequestReply = true,
-        SupportsNativeStreaming = true,
         SupportsBackpressure = true,
         SupportsCancellation = true
     };
@@ -291,10 +298,10 @@ public sealed class GrpcMessagingProtocol :
         return new CallOptions(deadline: deadline, cancellationToken: cancellationToken);
     }
 
-    private static bool HasElapsedDeadline(
+    private bool HasElapsedDeadline(
         TransportEnvelope envelope,
         CancellationToken cancellationToken)
         => !cancellationToken.IsCancellationRequested &&
            DateTimeOffset.TryParse(envelope.Headers[HeaderNames.Deadline], out var deadline) &&
-           deadline <= DateTimeOffset.UtcNow;
+           deadline <= _envelopeFactory.GetUtcNow();
 }

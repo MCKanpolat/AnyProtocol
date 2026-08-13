@@ -31,7 +31,7 @@ public sealed class KafkaMessagingProtocol :
     /// <param name="options">The options that control the operation.</param>
     public KafkaMessagingProtocol(KafkaProtocolOptions options)
     {
-        _options = Validate(options);
+        _options = KafkaProtocolOptionsValidator.Validate(options);
 
         var producerConfig = new ProducerConfig
         {
@@ -40,7 +40,7 @@ public sealed class KafkaMessagingProtocol :
             EnableIdempotence = true,
             Acks = Acks.All
         };
-        ApplyOverrides(producerConfig, options.ProducerConfig);
+        KafkaProtocolOptionsValidator.ApplyOverrides(producerConfig, options.ProducerConfig);
         _producer = new ProducerBuilder<string, byte[]>(producerConfig).Build();
 
         _admin = new AdminClientBuilder(
@@ -57,7 +57,6 @@ public sealed class KafkaMessagingProtocol :
     /// </summary>
     /// <value>The capabilities.</value>
     public TransportCapabilities Capabilities =>
-        TransportCapabilities.PublishSubscribe |
         TransportCapabilities.CompetingConsumers |
         TransportCapabilities.NativeHeaders;
 
@@ -70,7 +69,6 @@ public sealed class KafkaMessagingProtocol :
         DeliveryGuarantee = TransportDeliveryGuarantee.AtLeastOnce,
         Ordering = TransportOrdering.PerPartition,
         Durability = TransportDurability.Durable,
-        SupportsPublishSubscribe = true,
         SupportsCompetingConsumers = true,
         SupportsPartitioning = true,
         SupportsBackpressure = true,
@@ -106,7 +104,7 @@ public sealed class KafkaMessagingProtocol :
     /// <param name="options">The options that control the operation.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the subscribe async.</returns>
-    public async ValueTask<IAsyncDisposable> SubscribeAsync(
+    public async ValueTask<ITransportSubscription> SubscribeAsync(
         string channel,
         Func<TransportEnvelope, CancellationToken, ValueTask> handler,
         SubscriptionOptions? options = null,
@@ -356,7 +354,7 @@ public sealed class KafkaMessagingProtocol :
             AutoOffsetReset = replyTopic ? AutoOffsetReset.Latest : AutoOffsetReset.Earliest,
             AllowAutoCreateTopics = _options.AutoCreateTopics
         };
-        ApplyOverrides(config, _options.ConsumerConfig);
+        KafkaProtocolOptionsValidator.ApplyOverrides(config, _options.ConsumerConfig);
         return config;
     }
 
@@ -378,53 +376,6 @@ public sealed class KafkaMessagingProtocol :
         return topic;
     }
 
-    private static KafkaProtocolOptions Validate(KafkaProtocolOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.BootstrapServers);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.ClientId);
-        if (options.TopicPartitions <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.TopicPartitions));
-        }
-
-        if (options.TopicReplicationFactor <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.TopicReplicationFactor));
-        }
-
-        if (options.ReplyTopicRetention <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.ReplyTopicRetention));
-        }
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.DeadLetterSuffix);
-        if (options.SubscriptionStartupTimeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.SubscriptionStartupTimeout));
-        }
-
-        if (options.ConsumerPollInterval <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.ConsumerPollInterval));
-        }
-
-        if (options.ProducerFlushTimeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.ProducerFlushTimeout));
-        }
-
-        return options;
-    }
-
-    private static void ApplyOverrides(ClientConfig config, IReadOnlyDictionary<string, string> overrides)
-    {
-        foreach (var pair in overrides)
-        {
-            config.Set(pair.Key, pair.Value);
-        }
-    }
-
     private static bool IsReplyChannel(string channel)
         => channel.StartsWith(ReplyChannelPrefix, StringComparison.Ordinal);
 
@@ -435,22 +386,7 @@ public sealed class KafkaMessagingProtocol :
                     ? character
                     : '-'));
 
-    private static TransportEnvelope CreateEnvelope(ConsumeResult<string, byte[]> result)
-    {
-        var headers = new MessageHeaders();
-        foreach (var header in result.Message.Headers)
-        {
-            var value = header.GetValueBytes();
-            if (value is not null)
-            {
-                headers[header.Key] = Encoding.UTF8.GetString(value);
-            }
-        }
-
-        return new TransportEnvelope(headers, result.Message.Value ?? []);
-    }
-
-    private sealed class KafkaSubscription : IAsyncDisposable
+    private sealed class KafkaSubscription : ITransportSubscription
     {
         private readonly KafkaMessagingProtocol _owner;
         private readonly string _topic;
@@ -459,9 +395,11 @@ public sealed class KafkaMessagingProtocol :
         private readonly int _workerCount;
         private readonly bool _replyTopic;
         private readonly CancellationTokenSource _stopping = new();
+        private readonly object _acceptingGate = new();
         private readonly TaskCompletionSource _assigned =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task[] _workers = [];
+        private bool _accepting = true;
         private int _disposed;
 
         public KafkaSubscription(
@@ -525,6 +463,17 @@ public sealed class KafkaMessagingProtocol :
             }
         }
 
+        public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_acceptingGate)
+            {
+                _accepting = false;
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
         private async Task ConsumeAsync(int workerIndex)
         {
             var builder = new ConsumerBuilder<string, byte[]>(
@@ -576,10 +525,25 @@ public sealed class KafkaMessagingProtocol :
                         continue;
                     }
 
-                    var envelope = CreateEnvelope(result);
+                    var envelope = KafkaEnvelopeMapper.CreateEnvelope(result);
                     try
                     {
-                        await _handler(envelope, _stopping.Token).ConfigureAwait(false);
+                        ValueTask handling;
+                        lock (_acceptingGate)
+                        {
+                            if (!_accepting)
+                            {
+                                break;
+                            }
+
+                            handling = _handler(envelope, _stopping.Token);
+                        }
+
+                        await handling.ConfigureAwait(false);
+                    }
+                    catch (MessageAdmissionRejectedException)
+                    {
+                        break;
                     }
                     catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
                     {

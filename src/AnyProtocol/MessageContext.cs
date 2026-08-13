@@ -1,12 +1,11 @@
 using AnyProtocol.Abstraction;
-using AnyProtocol.DependencyInjection.Abstraction;
 
 namespace AnyProtocol;
 
 /// <summary>
-/// Carries the message, headers, services, and response state for one pipeline invocation.
+/// Carries the public message metadata for one pipeline invocation.
 /// </summary>
-public sealed class MessageContext : IMessageContext
+public sealed class MessageContext : IMessageContext, IRuntimeMessageContext
 {
     /// <summary>
     /// Initializes a new instance of the MessageContext class.
@@ -30,7 +29,7 @@ public sealed class MessageContext : IMessageContext
         Channel = channel ?? throw new ArgumentNullException(nameof(channel));
         MessageType = messageType;
         Direction = direction;
-        CancellationToken = cancellationToken;
+        Invocation = new MessageInvocation(cancellationToken);
     }
 
     /// <summary>
@@ -76,32 +75,15 @@ public sealed class MessageContext : IMessageContext
     public ContractMethodDescriptor? Method { get; set; }
 
     /// <summary>
-    /// Gets or initializes the services.
-    /// </summary>
-    /// <value>The services.</value>
-    public IDependencyResolver? Services { get; set; }
-
-    /// <summary>
     /// Gets the items.
     /// </summary>
     /// <value>The items.</value>
     public IDictionary<string, object?> Items { get; } = new Dictionary<string, object?>();
 
-    /// <summary>
-    /// Gets or initializes the cancellation token.
-    /// </summary>
-    /// <value>The cancellation token.</value>
-    public CancellationToken CancellationToken { get; set; }
+    /// <summary>Gets the effective cancellation token for the current pipeline stage.</summary>
+    public CancellationToken CancellationToken => Invocation.CancellationToken;
 
-    /// <summary>
-    /// Gets the response envelope produced by the operation.
-    /// </summary>
-    /// <value>The response.</value>
-    public TransportEnvelope? Response { get; set; }
+    internal MessageInvocation Invocation { get; set; }
 
-    /// <summary>
-    /// Gets or initializes the exception.
-    /// </summary>
-    /// <value>The exception.</value>
-    public Exception? Exception { get; set; }
+    MessageInvocation IRuntimeMessageContext.Invocation => Invocation;
 }

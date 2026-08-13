@@ -10,12 +10,27 @@ namespace AnyProtocol.Configuration;
 /// </summary>
 public sealed class LinkBuilder
 {
-    private readonly LinkConfiguration _configuration = new();
+    private readonly LinkDefinition _definition = new();
 
     /// <summary>Sets the serializer shared by clients, servers, and event handlers.</summary>
     public LinkBuilder UseSerializer(IMessageSerializer serializer)
     {
-        _configuration.Serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        _definition.Serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        return this;
+    }
+
+    /// <summary>Enables serialized-body offload with explicit bounded limits.</summary>
+    public LinkBuilder UseLargePayloadOffload(Action<LargePayloadOffloadOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_definition.LargePayloadOffload is not null)
+        {
+            throw new InvalidOperationException("Large-payload offload is already configured.");
+        }
+
+        var options = new LargePayloadOffloadOptions();
+        configure(options);
+        _definition.LargePayloadOffload = options;
         return this;
     }
 
@@ -28,7 +43,7 @@ public sealed class LinkBuilder
         }
 
         ArgumentNullException.ThrowIfNull(transport);
-        if (!_configuration.Transports.TryAdd(protocol, transport))
+        if (!_definition.Transports.TryAdd(protocol, transport))
         {
             throw new InvalidOperationException($"Protocol '{protocol}' is already registered.");
         }
@@ -62,10 +77,10 @@ public sealed class LinkBuilder
         where TContract : class
     {
         ValidateConfigurationKey(configurationKey);
-        EnsureUniqueConfigurationKey(_configuration.Clients, configurationKey, "client");
+        EnsureUniqueConfigurationKey(_definition.Clients, configurationKey, "client");
         var options = new ClientOptionsBuilder();
         configure?.Invoke(options);
-        _configuration.Clients.Add(
+        _definition.Clients.Add(
             new ClientRegistration(
                 typeof(TContract),
                 options.Protocol,
@@ -111,10 +126,10 @@ public sealed class LinkBuilder
         where TImplementation : class, TContract
     {
         ValidateConfigurationKey(configurationKey);
-        EnsureUniqueConfigurationKey(_configuration.Servers, configurationKey, "server");
+        EnsureUniqueConfigurationKey(_definition.Servers, configurationKey, "server");
         var options = new ServerOptionsBuilder();
         configure?.Invoke(options);
-        _configuration.Servers.Add(
+        _definition.Servers.Add(
             new ServerRegistration(
                 typeof(TContract),
                 typeof(TImplementation),
@@ -130,7 +145,7 @@ public sealed class LinkBuilder
     public LinkBuilder ConfigureClientProtocol(string configurationKey, ProtocolKey protocol)
     {
         ValidateConfigurationKey(configurationKey);
-        var index = _configuration.Clients.FindIndex(
+        var index = _definition.Clients.FindIndex(
             registration => string.Equals(
                 registration.ConfigurationKey,
                 configurationKey,
@@ -146,7 +161,7 @@ public sealed class LinkBuilder
             throw new ArgumentException("A protocol key is required.", nameof(protocol));
         }
 
-        _configuration.Clients[index] = _configuration.Clients[index] with { Protocol = protocol };
+        _definition.Clients[index] = _definition.Clients[index] with { Protocol = protocol };
         return this;
     }
 
@@ -165,7 +180,7 @@ public sealed class LinkBuilder
                 nameof(protocols));
         }
 
-        var index = _configuration.Servers.FindIndex(
+        var index = _definition.Servers.FindIndex(
             registration => string.Equals(
                 registration.ConfigurationKey,
                 configurationKey,
@@ -176,7 +191,7 @@ public sealed class LinkBuilder
                 $"Protocol configuration references unknown server registration '{configurationKey}'.");
         }
 
-        _configuration.Servers[index] = _configuration.Servers[index] with
+        _definition.Servers[index] = _definition.Servers[index] with
         {
             Protocols = protocols.ToArray()
         };
@@ -198,7 +213,7 @@ public sealed class LinkBuilder
         var options = new EventOptionsBuilder(
             $"anyprotocol.event.{ToKebabCase(typeof(TEvent).Name)}");
         configure?.Invoke(options);
-        _configuration.Events.Add(
+        _definition.Events.Add(
             new EventRegistration(
                 typeof(TEvent),
                 typeof(THandler),
@@ -214,22 +229,22 @@ public sealed class LinkBuilder
     /// <summary>Adds a filter to the outbound client pipeline.</summary>
     public LinkBuilder AddClientFilter(IMessageFilter filter)
     {
-        _configuration.ClientFilters.Add(filter ?? throw new ArgumentNullException(nameof(filter)));
+        _definition.ClientFilters.Add(filter ?? throw new ArgumentNullException(nameof(filter)));
         return this;
     }
 
     /// <summary>Adds a filter to the inbound server pipeline.</summary>
     public LinkBuilder AddServerFilter(IMessageFilter filter)
     {
-        _configuration.ServerFilters.Add(filter ?? throw new ArgumentNullException(nameof(filter)));
+        _definition.ServerFilters.Add(filter ?? throw new ArgumentNullException(nameof(filter)));
         return this;
     }
 
-    /// <summary>Builds and validates the complete link configuration.</summary>
-    public LinkConfiguration Build(ContractDescriptorFactory? descriptorFactory = null)
+    /// <summary>Builds an immutable runtime plan from the current link definition.</summary>
+    public RuntimePlan Build(ContractDescriptorFactory? descriptorFactory = null)
     {
-        _configuration.Validate(descriptorFactory ?? new ContractDescriptorFactory());
-        return _configuration;
+        var factory = descriptorFactory ?? new ContractDescriptorFactory();
+        return new RuntimePlanCompiler(factory).Compile(_definition);
     }
 
     private static string ToKebabCase(string value)

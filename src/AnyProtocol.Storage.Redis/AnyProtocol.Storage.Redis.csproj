@@ -10,9 +10,11 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\AnyProtocol.DependencyInjection.Abstraction\AnyProtocol.DependencyInjection.Abstraction.csproj" />
-      <ProjectReference Include="..\AnyProtocol.Logging.Abstraction\AnyProtocol.Logging.Abstraction.csproj" />
       <ProjectReference Include="..\AnyProtocol.Storage.Abstraction\AnyProtocol.Storage.Abstraction.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     </ItemGroup>
 
 </Project>

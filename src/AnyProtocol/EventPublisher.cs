@@ -1,6 +1,8 @@
 using AnyProtocol.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using AnyProtocol.Serializer.Abstraction;
+using AnyProtocol.Services;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 
@@ -10,13 +12,19 @@ namespace AnyProtocol;
 /// Provides the event publisher implementation used by AnyProtocol applications.
 /// </summary>
 /// <typeparam name="TEvent">The event type.</typeparam>
-public sealed class EventPublisher<TEvent> : IEventPublisher<TEvent>
+public sealed class EventPublisher<
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] TEvent>
+    : IEventPublisher<TEvent>
     where TEvent : class
 {
     private readonly ISendTransport _transport;
     private readonly IMessageSerializer _serializer;
     private readonly string _channel;
     private readonly string _transportName;
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
+    private readonly OutboundOperationExecutor _executor;
+    private readonly MessageFilterDelegate _pipeline;
+    private readonly LargePayloadOffloader _payloadOffloader;
     private static readonly PropertyInfo? PartitionKeyProperty = GetPartitionKeyProperty();
 
     /// <summary>
@@ -26,17 +34,29 @@ public sealed class EventPublisher<TEvent> : IEventPublisher<TEvent>
     /// <param name="serializer">The serializer.</param>
     /// <param name="channel">The logical message channel.</param>
     /// <param name="transportName">The transport name.</param>
+    /// <param name="executor">The outbound operation executor.</param>
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    /// <param name="payloadOffloader">The optional outbound payload processor.</param>
     /// <returns>The result of the event publisher operation.</returns>
     public EventPublisher(
         ISendTransport transport,
         IMessageSerializer serializer,
         string channel,
-        string transportName = "unknown")
+        string transportName = "unknown",
+        OutboundOperationExecutor? executor = null,
+        IMessageEnvelopeFactory? envelopeFactory = null,
+        LargePayloadOffloader? payloadOffloader = null)
     {
         _transport = transport;
         _serializer = serializer;
         _channel = channel;
         _transportName = transportName;
+        _executor = executor ?? throw new ArgumentNullException(nameof(executor));
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
+        _payloadOffloader = payloadOffloader ?? new LargePayloadOffloader(
+            null,
+            new LargePayloadStoreRegistry([]));
+        _pipeline = _executor.CreatePipeline(SendAsync);
     }
 
     /// <summary>
@@ -50,15 +70,10 @@ public sealed class EventPublisher<TEvent> : IEventPublisher<TEvent>
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(@event);
-        var headers = new MessageHeaders
-        {
-            [HeaderNames.MessageId] = Guid.NewGuid().ToString("N"),
-            [HeaderNames.Channel] = _channel,
-            [HeaderNames.Contract] = typeof(TEvent).FullName ?? typeof(TEvent).Name,
-            [HeaderNames.MessageType] = MessageType.Event.ToString(),
-            [HeaderNames.ContentType] = "application/x-anyprotocol",
-            [HeaderNames.SentAt] = DateTimeOffset.UtcNow.ToString("O")
-        };
+        var headers = _envelopeFactory.CreateOutboundHeaders(
+            MessageType.Event,
+            _channel,
+            typeof(TEvent).FullName ?? typeof(TEvent).Name);
         if (PartitionKeyProperty is not null)
         {
             var partitionKey = Convert.ToString(
@@ -83,15 +98,17 @@ public sealed class EventPublisher<TEvent> : IEventPublisher<TEvent>
             MessageDirection.Outbound,
             cancellationToken);
         context.Items[DiagnosticContext.TransportNameKey] = _transportName;
-        var pipeline = PipelineBuilder.Build(
-            ObservabilityFilters.AddDefaults(null),
-            async current =>
-                await _transport.SendAsync(
-                        _channel,
-                        new TransportEnvelope(current.Headers, current.Body),
-                        current.CancellationToken)
-                    .ConfigureAwait(false));
-        await pipeline(context).ConfigureAwait(false);
+        await _executor.ExecuteAsync(context, _pipeline).ConfigureAwait(false);
+    }
+
+    private async ValueTask SendAsync(IMessageContext context)
+    {
+        var envelope = await _payloadOffloader.OffloadAsync(
+                new TransportEnvelope(context.Headers, context.Body),
+                context.CancellationToken)
+            .ConfigureAwait(false);
+        await _transport.SendAsync(_channel, envelope, context.CancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static PropertyInfo? GetPartitionKeyProperty()

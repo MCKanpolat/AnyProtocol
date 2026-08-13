@@ -18,6 +18,10 @@ public enum AnyProtocolBusState
     /// </summary>
     Started,
     /// <summary>
+    /// Indicates that new work is rejected while admitted work drains.
+    /// </summary>
+    Draining,
+    /// <summary>
     /// Indicates stopping.
     /// </summary>
     Stopping,

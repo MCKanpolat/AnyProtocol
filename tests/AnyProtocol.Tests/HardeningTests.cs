@@ -58,7 +58,7 @@ public sealed class HardeningTests
                 .AddTransport(ProtocolKey.InMemory, new InMemoryMessagingProtocol())
                 .AddTransport(
                     ProtocolKey.Create("limited"),
-                    new TestTransport(TransportCapabilities.NativeHeaders))
+                    new LifecycleOnlyTransport())
                 .AddServer<IHardeningService, HardeningService>(
                     options => options.UseProtocols(
                         ProtocolKey.InMemory,
@@ -70,15 +70,14 @@ public sealed class HardeningTests
     }
 
     [Fact]
-    public void Legacy_capabilities_receive_conservative_semantics()
+    public void Default_semantics_are_conservative()
     {
-        var transport = new TestTransport(TransportCapabilities.NativeStreaming);
+        var transport = new TestTransport(TransportCapabilities.NativeHeaders);
 
         Assert.Equal(TransportDeliveryGuarantee.AtMostOnce, transport.Semantics.DeliveryGuarantee);
         Assert.Equal(TransportOrdering.None, transport.Semantics.Ordering);
         Assert.Equal(TransportDurability.Volatile, transport.Semantics.Durability);
-        Assert.True(transport.Semantics.SupportsNativeStreaming);
-        Assert.True(transport.Semantics.SupportsBackpressure);
+        Assert.False(transport.Semantics.SupportsBackpressure);
     }
 
     [Fact]
@@ -114,12 +113,12 @@ public sealed class HardeningTests
         var exception = Assert.Throws<InvalidOperationException>(
             () => new LinkBuilder()
                 .UseSerializer(new TextJsonMessageSerializer())
-                .AddTransport("limited", new TestTransport(TransportCapabilities.NativeHeaders))
+                .AddTransport("limited", new LifecycleOnlyTransport())
                 .AddEventHandler<TestEvent, TestEventHandler>(
                     options => options.UseTransport("limited"))
                 .Build());
 
-        Assert.Contains("event publish/subscribe", exception.Message);
+        Assert.Contains("event publishing", exception.Message);
     }
 
     [Fact]
@@ -130,7 +129,7 @@ public sealed class HardeningTests
                 .UseSerializer(new TextJsonMessageSerializer())
                 .AddTransport(
                     "limited",
-                    new TestTransport(TransportCapabilities.PublishSubscribe))
+                    new TestTransport(TransportCapabilities.None))
                 .AddEventHandler<TestEvent, TestEventHandler>(
                     options => options.UseTransport("limited").ConsumerGroup("workers"))
                 .Build());
@@ -144,7 +143,7 @@ public sealed class HardeningTests
         var exception = Assert.Throws<InvalidOperationException>(
             () => new LinkBuilder()
                 .UseSerializer(new TextJsonMessageSerializer())
-                .AddTransport("limited", new TestTransport(TransportCapabilities.NativeHeaders))
+                .AddTransport("limited", new LifecycleOnlyTransport())
                 .AddClient<IHardeningService>(options => options.UseTransport("limited"))
                 .Build());
 
@@ -159,7 +158,7 @@ public sealed class HardeningTests
                 .UseSerializer(new TextJsonMessageSerializer())
                 .AddTransport(
                     "limited",
-                    new TestTransport(TransportCapabilities.NativeRequestReply))
+                    new LifecycleOnlyTransport())
                 .AddClient<IStreamHardeningService>(
                     options => options.UseTransport("limited"))
                 .Build());
@@ -175,7 +174,7 @@ public sealed class HardeningTests
                 .UseSerializer(new TextJsonMessageSerializer())
                 .AddTransport(
                     "limited",
-                    new TestTransport(TransportCapabilities.PublishSubscribe))
+                    new TestTransport(TransportCapabilities.None))
                 .AddClient<IPartitionedHardeningService>(
                     options => options.UseTransport("limited"))
                 .Build());
@@ -192,7 +191,7 @@ public sealed class HardeningTests
                 .AddTransport(
                     "limited",
                     new TestTransport(
-                        TransportCapabilities.NativeRequestReply,
+                        TransportCapabilities.None,
                         new TransportSemantics
                         {
                             DeliveryGuarantee = TransportDeliveryGuarantee.AtMostOnce,
@@ -212,7 +211,6 @@ public sealed class HardeningTests
     public async Task Bus_parallel_start_stop_and_dispose_are_idempotent()
     {
         var transport = new TestTransport(
-            TransportCapabilities.PublishSubscribe |
             TransportCapabilities.CompetingConsumers);
         await using var provider = CreateProvider(transport);
         var bus = provider.GetRequiredService<AnyProtocolBus>();
@@ -242,10 +240,8 @@ public sealed class HardeningTests
     public async Task Bus_subscribes_one_logical_server_on_every_selected_protocol()
     {
         var primary = new TestTransport(
-            TransportCapabilities.PublishSubscribe |
             TransportCapabilities.CompetingConsumers);
         var secondary = new TestTransport(
-            TransportCapabilities.PublishSubscribe |
             TransportCapabilities.CompetingConsumers);
         var services = new ServiceCollection();
         services.AddAnyProtocol(link => link
@@ -267,7 +263,6 @@ public sealed class HardeningTests
     public async Task Bus_rolls_back_partial_startup_and_can_restart()
     {
         var transport = new TestTransport(
-            TransportCapabilities.PublishSubscribe |
             TransportCapabilities.CompetingConsumers)
         {
             FailSubscriptionNumber = 2
@@ -290,7 +285,6 @@ public sealed class HardeningTests
     public async Task Bus_retries_failed_subscription_cleanup_before_becoming_stopped()
     {
         var transport = new TestTransport(
-            TransportCapabilities.PublishSubscribe |
             TransportCapabilities.CompetingConsumers)
         {
             FailFirstSubscriptionDisposeOnce = true
@@ -328,6 +322,93 @@ public sealed class HardeningTests
     }
 
     [Fact]
+    public async Task Bus_stop_observes_caller_cancellation_after_cleanup_finishes()
+    {
+        BlockingHardeningService.Reset();
+        var transport = new InMemoryMessagingProtocol();
+        await using var provider = CreateProvider(
+            transport,
+            useBlockingService: true,
+            shutdownOptions: new ShutdownOptions
+            {
+                DrainTimeout = TimeSpan.FromSeconds(30),
+                ForcedCancellationTimeout = TimeSpan.FromSeconds(1)
+            });
+        var bus = provider.GetRequiredService<AnyProtocolBus>();
+        await bus.StartAsync();
+        var request = provider.GetRequiredService<IHardeningService>()
+            .GetAsync(new HardeningRequest("wait"), CancellationToken.None)
+            .AsTask();
+        await BlockingHardeningService.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => bus.StopAsync(cancellation.Token).AsTask());
+
+        Assert.Equal(AnyProtocolBusState.Stopped, bus.State);
+        await BlockingHardeningService.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(request.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task Bus_signals_racing_subscription_callbacks_for_redelivery()
+    {
+        var transport = new DrainRaceTransport();
+        await using var provider = CreateProvider(transport);
+        var bus = provider.GetRequiredService<AnyProtocolBus>();
+        await bus.StartAsync();
+
+        await bus.StopAsync();
+
+        Assert.True(transport.RejectedCallbackCount > 0);
+        Assert.Equal(AnyProtocolBusState.Stopped, bus.State);
+    }
+
+    [Fact]
+    public async Task Bus_admits_callbacks_while_subscriptions_are_starting()
+    {
+        var transport = new StartupRaceTransport();
+        await using var provider = CreateProvider(transport);
+        var bus = provider.GetRequiredService<AnyProtocolBus>();
+
+        await bus.StartAsync();
+
+        Assert.True(transport.CallbackCount > 0);
+        Assert.Equal(0, transport.RejectedCallbackCount);
+        await bus.StopAsync();
+    }
+
+    [Fact]
+    public async Task Bus_remains_stopping_when_forced_cancellation_cannot_finish()
+    {
+        NonCooperativeHardeningService.Reset();
+        var transport = new InMemoryMessagingProtocol();
+        await using var provider = CreateProvider(
+            transport,
+            useNonCooperativeService: true,
+            shutdownOptions: new ShutdownOptions
+            {
+                DrainTimeout = TimeSpan.FromMilliseconds(10),
+                ForcedCancellationTimeout = TimeSpan.FromMilliseconds(200)
+            });
+        var bus = provider.GetRequiredService<AnyProtocolBus>();
+        await bus.StartAsync();
+        var request = provider.GetRequiredService<IHardeningService>()
+            .GetAsync(new HardeningRequest("wait"), CancellationToken.None)
+            .AsTask();
+        await NonCooperativeHardeningService.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await Assert.ThrowsAsync<TimeoutException>(() => bus.StopAsync().AsTask());
+        Assert.Equal(AnyProtocolBusState.Stopping, bus.State);
+
+        NonCooperativeHardeningService.Release.TrySetResult();
+        await NonCooperativeHardeningService.Returning.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await bus.StopAsync();
+        Assert.Equal(AnyProtocolBusState.Stopped, bus.State);
+        Assert.False(request.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public async Task Request_reply_engine_starts_once_and_ignores_duplicate_responses()
     {
         var transport = new ReplyingTransport(duplicateResponses: true);
@@ -343,6 +424,20 @@ public sealed class HardeningTests
                         .AsTask()));
 
         Assert.Equal(64, responses.Length);
+        Assert.Equal(1, transport.SubscribeCount);
+    }
+
+    [Fact]
+    public async Task Request_reply_engine_matches_a_caller_supplied_correlation_id()
+    {
+        var transport = new ReplyingTransport(duplicateResponses: false);
+        await using var engine = new RequestReplyEngine(transport);
+        var request = new TransportEnvelope(
+            new MessageHeaders { [HeaderNames.CorrelationId] = "caller-correlation" },
+            ReadOnlyMemory<byte>.Empty);
+
+        _ = await engine.RequestAsync("requests", request, TimeSpan.FromSeconds(2));
+
         Assert.Equal(1, transport.SubscribeCount);
     }
 
@@ -566,16 +661,33 @@ public sealed class HardeningTests
 
     private static ServiceProvider CreateProvider(
         IMessagingProtocol transport,
-        bool useBlockingService = false)
+        bool useBlockingService = false,
+        bool useNonCooperativeService = false,
+        ShutdownOptions? shutdownOptions = null)
     {
         var services = new ServiceCollection();
+        if (useBlockingService || useNonCooperativeService)
+        {
+            services.AddSingleton(
+                shutdownOptions ?? new ShutdownOptions
+                {
+                    DrainTimeout = TimeSpan.FromMilliseconds(100),
+                    ForcedCancellationTimeout = TimeSpan.FromSeconds(1)
+                });
+        }
+
         services.AddAnyProtocol(
             link =>
             {
                 link.UseSerializer(new TextJsonMessageSerializer())
                     .AddTransport("test", transport)
                     .AddClient<IHardeningService>(options => options.UseTransport("test"));
-                if (useBlockingService)
+                if (useNonCooperativeService)
+                {
+                    link.AddServer<IHardeningService, NonCooperativeHardeningService>(
+                        options => options.UseTransport("test"));
+                }
+                else if (useBlockingService)
                 {
                     link.AddServer<IHardeningService, BlockingHardeningService>(
                         options => options.UseTransport("test"));
@@ -706,6 +818,38 @@ public sealed class HardeningTests
             => ValueTask.FromResult(new HardeningResponse(request.Value));
     }
 
+    public sealed class NonCooperativeHardeningService : IHardeningService
+    {
+        public static TaskCompletionSource Started { get; private set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public static TaskCompletionSource Release { get; private set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public static TaskCompletionSource Returning { get; private set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public static void Reset()
+        {
+            Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Returning = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        public async ValueTask<HardeningResponse> GetAsync(
+            HardeningRequest request,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Release.Task;
+            Returning.TrySetResult();
+            return new HardeningResponse(request.Value);
+        }
+
+        public ValueTask<HardeningResponse> GetOtherAsync(HardeningRequest request)
+            => ValueTask.FromResult(new HardeningResponse(request.Value));
+    }
+
     public sealed class FailingHardeningService : IFailingHardeningService
     {
         public ValueTask<HardeningResponse> FailAsync(HardeningRequest request)
@@ -720,9 +864,9 @@ public sealed class HardeningTests
         public static void Reset()
             => Reported = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public ValueTask HandleAsync(IMessageContext context)
+        public ValueTask HandleAsync(ErrorContext context)
         {
-            Reported.TrySetResult(context.Exception!);
+            Reported.TrySetResult(context.Exception);
             throw new ApplicationException("Error handler failure must not replace the original.");
         }
     }
@@ -764,7 +908,7 @@ public sealed class HardeningTests
             CancellationToken cancellationToken = default)
             => ValueTask.CompletedTask;
 
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
+        public ValueTask<ITransportSubscription> SubscribeAsync(
             string channel,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
             SubscriptionOptions? options = null,
@@ -783,7 +927,7 @@ public sealed class HardeningTests
                       Interlocked.Exchange(ref _disposeFailureInjected, 1) == 0
                     ? new IOException("Injected subscription disposal failure.")
                     : null);
-            return ValueTask.FromResult<IAsyncDisposable>(subscription);
+            return ValueTask.FromResult<ITransportSubscription>(subscription);
         }
 
         public ValueTask DisposeAsync()
@@ -791,6 +935,13 @@ public sealed class HardeningTests
             Interlocked.Increment(ref _transportDisposeCount);
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class LifecycleOnlyTransport : IMessagingProtocol
+    {
+        public TransportCapabilities Capabilities => TransportCapabilities.None;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class ReplyingTransport(
@@ -801,7 +952,7 @@ public sealed class HardeningTests
         private int _subscribeCount;
         private int _subscriptionDisposeAttempts;
 
-        public TransportCapabilities Capabilities => TransportCapabilities.PublishSubscribe;
+        public TransportCapabilities Capabilities => TransportCapabilities.None;
 
         public int SubscribeCount => Volatile.Read(ref _subscribeCount);
 
@@ -827,7 +978,7 @@ public sealed class HardeningTests
             }
         }
 
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
+        public ValueTask<ITransportSubscription> SubscribeAsync(
             string channel,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
             SubscriptionOptions? options = null,
@@ -835,7 +986,7 @@ public sealed class HardeningTests
         {
             Interlocked.Increment(ref _subscribeCount);
             _handler = handler;
-            return ValueTask.FromResult<IAsyncDisposable>(
+            return ValueTask.FromResult<ITransportSubscription>(
                 new TestSubscription(
                     getDisposalFailure: () =>
                         Interlocked.Increment(ref _subscriptionDisposeAttempts) == 1 &&
@@ -852,7 +1003,7 @@ public sealed class HardeningTests
         public TaskCompletionSource SendObserved { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public TransportCapabilities Capabilities => TransportCapabilities.PublishSubscribe;
+        public TransportCapabilities Capabilities => TransportCapabilities.None;
 
         public ValueTask SendAsync(
             string channel,
@@ -863,12 +1014,103 @@ public sealed class HardeningTests
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
+        public ValueTask<ITransportSubscription> SubscribeAsync(
             string channel,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
             SubscriptionOptions? options = null,
             CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<IAsyncDisposable>(new TestSubscription());
+            => ValueTask.FromResult<ITransportSubscription>(new TestSubscription());
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class DrainRaceTransport : ISendTransport, ISubscriptionTransport
+    {
+        private int _rejectedCallbackCount;
+
+        public TransportCapabilities Capabilities => TransportCapabilities.CompetingConsumers;
+
+        public int RejectedCallbackCount => Volatile.Read(ref _rejectedCallbackCount);
+
+        public ValueTask SendAsync(
+            string channel,
+            TransportEnvelope envelope,
+            CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+
+        public ValueTask<ITransportSubscription> SubscribeAsync(
+            string channel,
+            Func<TransportEnvelope, CancellationToken, ValueTask> handler,
+            SubscriptionOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<ITransportSubscription>(new ProbeSubscription(this, handler));
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private sealed class ProbeSubscription(
+            DrainRaceTransport owner,
+            Func<TransportEnvelope, CancellationToken, ValueTask> handler) : ITransportSubscription
+        {
+            private int _stopped;
+
+            public async ValueTask StopAcceptingAsync(
+                CancellationToken cancellationToken = default)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (Interlocked.Exchange(ref _stopped, 1) != 0)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await handler(EmptyEnvelope(), cancellationToken);
+                }
+                catch (MessageAdmissionRejectedException)
+                {
+                    Interlocked.Increment(ref owner._rejectedCallbackCount);
+                }
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class StartupRaceTransport : ISendTransport, ISubscriptionTransport
+    {
+        private int _callbackCount;
+        private int _rejectedCallbackCount;
+
+        public TransportCapabilities Capabilities => TransportCapabilities.CompetingConsumers;
+
+        public int CallbackCount => Volatile.Read(ref _callbackCount);
+
+        public int RejectedCallbackCount => Volatile.Read(ref _rejectedCallbackCount);
+
+        public ValueTask SendAsync(
+            string channel,
+            TransportEnvelope envelope,
+            CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+
+        public async ValueTask<ITransportSubscription> SubscribeAsync(
+            string channel,
+            Func<TransportEnvelope, CancellationToken, ValueTask> handler,
+            SubscriptionOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await handler(EmptyEnvelope(), cancellationToken);
+                Interlocked.Increment(ref _callbackCount);
+            }
+            catch (MessageAdmissionRejectedException)
+            {
+                Interlocked.Increment(ref _rejectedCallbackCount);
+            }
+
+            return new TestSubscription();
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -878,7 +1120,7 @@ public sealed class HardeningTests
         public TaskCompletionSource SubscribeObserved { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public TransportCapabilities Capabilities => TransportCapabilities.PublishSubscribe;
+        public TransportCapabilities Capabilities => TransportCapabilities.None;
 
         public ValueTask SendAsync(
             string channel,
@@ -886,7 +1128,7 @@ public sealed class HardeningTests
             CancellationToken cancellationToken = default)
             => ValueTask.CompletedTask;
 
-        public async ValueTask<IAsyncDisposable> SubscribeAsync(
+        public async ValueTask<ITransportSubscription> SubscribeAsync(
             string channel,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
             SubscriptionOptions? options = null,
@@ -902,9 +1144,15 @@ public sealed class HardeningTests
 
     private sealed class TestSubscription(
         Action? onDispose = null,
-        Func<Exception?>? getDisposalFailure = null) : IAsyncDisposable
+        Func<Exception?>? getDisposalFailure = null) : ITransportSubscription
     {
         private int _disposed;
+
+        public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask DisposeAsync()
         {

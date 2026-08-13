@@ -38,7 +38,7 @@ REST and gRPC server transports dispatch mapped requests and do not expose subsc
 
 ## Request/reply
 
-REST and gRPC implement `INativeRequestReplyTransport`. InMemory, Kafka, RabbitMQ, and ZeroMQ emulate request/reply using a unique `_anyprotocol.reply.*` subscription and correlation headers. A positive client timeout defaults to 30 seconds.
+REST and gRPC implement `IRequestReplyTransport`; gRPC also implements `IStreamingTransport`. InMemory, Kafka, RabbitMQ, and ZeroMQ emulate request/reply using a unique `_anyprotocol.reply.*` subscription and correlation headers. A positive client timeout defaults to 30 seconds.
 
 Kafka reply topics default to five-minute retention. The other emulated transports have no durable reply storage.
 

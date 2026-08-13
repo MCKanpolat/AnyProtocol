@@ -2,6 +2,7 @@ using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
 using AnyProtocol.Encoder.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
+using AnyProtocol.Services;
 using Grpc.Core;
 
 namespace AnyProtocol.Protocol.Grpc.AspNetCore;
@@ -13,53 +14,60 @@ namespace AnyProtocol.Protocol.Grpc.AspNetCore;
 public class AnyProtocolGrpcService
 {
     private const string ReplyChannel = "_anyprotocol.grpc.response";
-    private readonly LinkConfiguration _configuration;
-    private readonly ContractDescriptorFactory _descriptorFactory;
+    private readonly RuntimePlan _runtimePlan;
     private readonly TransportRegistry _registry;
     private readonly MessageDispatcher _dispatcher;
     private readonly IEnvelopeCodec _codec;
+    private readonly IMessageEnvelopeFactory _envelopeFactory;
+    private readonly IRequestAdmission _admission;
 
     /// <summary>
     /// Initializes a new instance of the AnyProtocolGrpcService class.
     /// </summary>
-    /// <param name="configuration">The configuration.</param>
-    /// <param name="descriptorFactory">The descriptor factory.</param>
+    /// <param name="runtimePlan">The immutable runtime plan.</param>
     /// <param name="registry">The registry.</param>
     /// <param name="dispatcher">The dispatcher.</param>
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    /// <param name="admission">The shared request admission coordinator.</param>
     public AnyProtocolGrpcService(
-        LinkConfiguration configuration,
-        ContractDescriptorFactory descriptorFactory,
+        RuntimePlan runtimePlan,
         TransportRegistry registry,
-        MessageDispatcher dispatcher)
+        MessageDispatcher dispatcher,
+        IMessageEnvelopeFactory? envelopeFactory = null,
+        IRequestAdmission? admission = null)
         : this(
-            configuration,
-            descriptorFactory,
+            runtimePlan,
             registry,
             dispatcher,
-            new BinaryEnvelopeCodec())
+            new BinaryEnvelopeCodec(),
+            envelopeFactory,
+            admission)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the AnyProtocolGrpcService class.
     /// </summary>
-    /// <param name="configuration">The configuration.</param>
-    /// <param name="descriptorFactory">The descriptor factory.</param>
+    /// <param name="runtimePlan">The immutable runtime plan.</param>
     /// <param name="registry">The registry.</param>
     /// <param name="dispatcher">The dispatcher.</param>
     /// <param name="codec">The envelope codec.</param>
+    /// <param name="envelopeFactory">The message metadata factory.</param>
+    /// <param name="admission">The shared request admission coordinator.</param>
     public AnyProtocolGrpcService(
-        LinkConfiguration configuration,
-        ContractDescriptorFactory descriptorFactory,
+        RuntimePlan runtimePlan,
         TransportRegistry registry,
         MessageDispatcher dispatcher,
-        IEnvelopeCodec codec)
+        IEnvelopeCodec codec,
+        IMessageEnvelopeFactory? envelopeFactory = null,
+        IRequestAdmission? admission = null)
     {
-        _configuration = configuration;
-        _descriptorFactory = descriptorFactory;
+        _runtimePlan = runtimePlan ?? throw new ArgumentNullException(nameof(runtimePlan));
         _registry = registry;
         _dispatcher = dispatcher;
         _codec = codec ?? throw new ArgumentNullException(nameof(codec));
+        _envelopeFactory = envelopeFactory ?? DefaultMessageEnvelopeFactory.CreateDefault();
+        _admission = admission ?? CreateStandaloneAdmission();
     }
 
     /// <summary>
@@ -87,6 +95,12 @@ public class AnyProtocolGrpcService
     /// <returns>A task whose result contains the unary.</returns>
     public virtual async Task<byte[]> Unary(byte[] frame, ServerCallContext callContext)
     {
+        using var admissionLease = _admission.TryEnter();
+        if (admissionLease is null)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, "AnyProtocol is draining."));
+        }
+
         var request = _codec.Decode(frame);
         var capture = new CaptureProtocol();
         request.Headers[HeaderNames.ReplyTo] = ReplyChannel;
@@ -99,7 +113,7 @@ public class AnyProtocolGrpcService
         if (eventRoute is not null)
         {
             await _dispatcher.DispatchEventAsync(
-                    eventRoute,
+                    eventRoute.Registration,
                     request,
                     capture,
                     callContext.CancellationToken)
@@ -145,6 +159,12 @@ public class AnyProtocolGrpcService
         IServerStreamWriter<byte[]> responseStream,
         ServerCallContext callContext)
     {
+        using var admissionLease = _admission.TryEnter();
+        if (admissionLease is null)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, "AnyProtocol is draining."));
+        }
+
         var request = _codec.Decode(frame);
         var route = FindRoute(request);
         if (route is null || route.Method.Operation != ContractOperation.Stream)
@@ -186,7 +206,8 @@ public class AnyProtocolGrpcService
         catch (OperationCanceledException exception)
         {
             var statusCode = callContext.Deadline != DateTime.MaxValue &&
-                             callContext.Deadline <= DateTime.UtcNow.AddMilliseconds(100)
+                             callContext.Deadline.ToUniversalTime() <=
+                             _envelopeFactory.GetUtcNow().UtcDateTime.AddMilliseconds(100)
                 ? StatusCode.DeadlineExceeded
                 : StatusCode.Cancelled;
             throw new RpcException(
@@ -195,64 +216,51 @@ public class AnyProtocolGrpcService
         }
     }
 
-    private Route? FindRoute(TransportEnvelope request)
+    private ServerRoutePlan? FindRoute(TransportEnvelope request)
     {
         var contract = request.Headers[HeaderNames.Contract];
         var method = request.Headers[HeaderNames.Method];
-        return _configuration.ServerRegistrations
-            .SelectMany(
-                registration => registration.Protocols
-                    .Where(protocol =>
-                        _registry.TryGet(protocol, out var transport) &&
-                        transport is GrpcServerProtocol)
-                    .SelectMany(
-                        protocol => _descriptorFactory.Create(registration.ContractType).Methods
-                            .Select(descriptor => new Route(registration, descriptor, protocol))))
+        return _runtimePlan.ServerRoutes
+            .Where(route =>
+                _registry.TryGet(route.Protocol, out var transport) &&
+                transport is GrpcServerProtocol)
             .SingleOrDefault(
                 route =>
                     route.Method.ContractName == contract &&
                     route.Method.MethodName == method);
     }
 
-    private EventRegistration? FindEventRoute(TransportEnvelope request)
+    private EventPlan? FindEventRoute(TransportEnvelope request)
     {
         var contract = request.Headers[HeaderNames.Contract];
         var channel = request.Headers[HeaderNames.Channel];
-        return _configuration.EventRegistrations
+        return _runtimePlan.EventPlans
             .Where(
-                registration =>
-                    _registry.GetRequired(registration.TransportName) is GrpcServerProtocol)
+                eventPlan =>
+                    _registry.GetRequired(eventPlan.Registration.TransportName) is GrpcServerProtocol)
             .SingleOrDefault(
-                registration =>
-                    registration.Channel == channel &&
-                    (registration.EventType.FullName ?? registration.EventType.Name) == contract);
+                eventPlan =>
+                    eventPlan.Registration.Channel == channel &&
+                    (eventPlan.Registration.EventType.FullName ?? eventPlan.Registration.EventType.Name) == contract);
     }
 
-    private static MessageHeaders CreateHeaders(
+    private MessageHeaders CreateHeaders(
         TransportEnvelope request,
         MessageType messageType)
-        => new()
-        {
-            [HeaderNames.MessageId] = Guid.NewGuid().ToString("N"),
-            [HeaderNames.CorrelationId] =
-                request.Headers[HeaderNames.CorrelationId] ??
-                request.Headers[HeaderNames.MessageId],
-            [HeaderNames.MessageType] = messageType.ToString(),
-            [HeaderNames.ContentType] = request.Headers[HeaderNames.ContentType]
-        };
+        => new(_envelopeFactory.CreateResponseHeaders(request.Headers, messageType));
 
-    private sealed record Route(
-        ServerRegistration Registration,
-        ContractMethodDescriptor Method,
-        ProtocolKey Protocol);
+    private static RequestAdmissionCoordinator CreateStandaloneAdmission()
+    {
+        var admission = new RequestAdmissionCoordinator();
+        admission.StartAccepting();
+        return admission;
+    }
 
     private sealed class CaptureProtocol : ISendTransport
     {
         public TransportEnvelope? Response { get; private set; }
 
-        public TransportCapabilities Capabilities =>
-            TransportCapabilities.NativeRequestReply |
-            TransportCapabilities.NativeHeaders;
+        public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
         public ValueTask SendAsync(
             string channel,

@@ -1,8 +1,9 @@
-using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
+using AnyProtocol.Abstraction;
 using AnyProtocol.DependencyInjection.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using AnyProtocol.Serializer.Abstraction;
+using AnyProtocol.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -50,48 +51,83 @@ public static class ServiceProviderExtensions
             ApplyProtocolConfiguration(builder, protocolConfiguration);
         }
 
-        var configuration = builder.Build(descriptorFactory);
+        var runtimePlan = builder.Build(descriptorFactory);
 
-        services.AddSingleton(configuration);
-        services.AddSingleton(configuration.Serializer!);
+        services.AddSingleton(runtimePlan);
+        services.AddSingleton(runtimePlan.Serializer);
         services.AddSingleton(descriptorFactory);
+        services.TryAddSingleton<IMessageIdGenerator, DefaultMessageIdGenerator>();
+        services.TryAddSingleton<IDateTimeProvider, DefaultDateTimeProvider>();
+        services.TryAddSingleton<IMessageEnvelopeFactory, DefaultMessageEnvelopeFactory>();
+        services.TryAddSingleton<AnyProtocol.Logging.Abstraction.ILogWriterFactory>(
+            AnyProtocol.Logging.Abstraction.NullLogWriterFactory.Instance);
+        services.TryAddSingleton<IRequestAdmission, RequestAdmissionCoordinator>();
+        services.TryAddSingleton<OutboundOperationLifetime>();
+        services.TryAddSingleton(new ShutdownOptions());
+        services.TryAddSingleton<LargePayloadStoreRegistry>();
         services.AddSingleton(
-            new TransportRegistry(configuration.RegisteredTransports));
+            provider => new LargePayloadOffloader(
+                runtimePlan.LargePayloadOffload,
+                provider.GetRequiredService<LargePayloadStoreRegistry>()));
+        services.AddSingleton(
+            provider => new LargePayloadMaterializer(
+                provider.GetRequiredService<LargePayloadStoreRegistry>(),
+                provider.GetRequiredService<IDateTimeProvider>()));
+        services.AddSingleton(
+            new TransportRegistry(runtimePlan.RegisteredTransports));
         services.TryAddSingleton<ProtocolExposureRegistry>();
         services.AddSingleton<IDependencyResolverFactory, MicrosoftDependencyResolverFactory>();
         services.AddSingleton<IContractProxyFactory, GeneratedContractProxyFactory>();
         services.AddSingleton(
+            provider => new OutboundOperationExecutor(
+                provider.GetRequiredService<IDependencyResolverFactory>(),
+                provider.GetRequiredService<IRequestAdmission>(),
+                runtimePlan.RegisteredClientFilters,
+                provider.GetRequiredService<OutboundOperationLifetime>()));
+        services.AddSingleton(
             provider => new MessageDispatcher(
                 provider.GetRequiredService<IDependencyResolverFactory>(),
                 provider.GetRequiredService<IMessageSerializer>(),
-                configuration.RegisteredServerFilters,
-                provider.GetServices<IErrorHandler>()));
+                runtimePlan.RegisteredServerFilters,
+                provider.GetServices<IErrorHandler>(),
+                provider.GetRequiredService<IMessageEnvelopeFactory>(),
+                provider.GetRequiredService<AnyProtocol.Logging.Abstraction.ILogWriterFactory>(),
+                provider.GetRequiredService<LargePayloadMaterializer>(),
+                provider.GetRequiredService<LargePayloadOffloader>()));
         services.AddSingleton(
             provider => new AnyProtocolClientInvoker(
                 provider.GetRequiredService<TransportRegistry>(),
                 provider.GetRequiredService<IMessageSerializer>(),
-                configuration.ClientRegistrations,
-                configuration.RegisteredClientFilters,
-                provider.GetRequiredService<IDependencyResolverFactory>().CreateResolver()));
+                runtimePlan.ClientRegistrations,
+                provider.GetRequiredService<OutboundOperationExecutor>(),
+                provider.GetRequiredService<IMessageEnvelopeFactory>(),
+                provider.GetRequiredService<LargePayloadOffloader>(),
+                provider.GetRequiredService<LargePayloadMaterializer>()));
         services.AddSingleton<IClientInvoker>(
             provider => provider.GetRequiredService<AnyProtocolClientInvoker>());
+        services.AddSingleton<RuntimeLifetimeOwner>();
         services.AddSingleton(
             provider => new AnyProtocolBus(
-                configuration,
-                descriptorFactory,
+                runtimePlan,
                 provider.GetRequiredService<TransportRegistry>(),
-                provider.GetRequiredService<MessageDispatcher>()));
+                provider.GetRequiredService<MessageDispatcher>(),
+                provider.GetRequiredService<IRequestAdmission>(),
+                provider.GetRequiredService<ShutdownOptions>(),
+                provider.GetRequiredService<AnyProtocol.Logging.Abstraction.ILogWriterFactory>(),
+                provider.GetRequiredService<OutboundOperationLifetime>()));
         services.AddSingleton<IAnyProtocolBus>(
             provider => provider.GetRequiredService<AnyProtocolBus>());
+        services.AddHostedService<AuthorizationConfigurationValidationService>();
+        services.AddHostedService<InboxConfigurationValidationService>();
         services.AddHostedService<ProtocolExposureValidationService>();
         services.AddHostedService<AnyProtocolHostedService>();
 
-        foreach (var server in configuration.ServerRegistrations)
+        foreach (var server in runtimePlan.ServerRegistrations)
         {
             services.AddScoped(server.ImplementationType);
         }
 
-        foreach (var client in configuration.ClientRegistrations)
+        foreach (var client in runtimePlan.ClientRegistrations)
         {
             services.AddSingleton(
                 client.ContractType,
@@ -99,10 +135,10 @@ public static class ServiceProviderExtensions
                     .Create(client.ContractType, provider.GetRequiredService<IClientInvoker>()));
         }
 
-        foreach (var eventRegistration in configuration.EventRegistrations)
+        foreach (var eventRegistration in runtimePlan.EventRegistrations)
         {
             services.AddScoped(eventRegistration.HandlerType);
-            var eventTransport = configuration.RegisteredTransports[eventRegistration.Protocol];
+            var eventTransport = runtimePlan.RegisteredTransports[eventRegistration.Protocol];
             if (eventTransport is not ISendTransport)
             {
                 // Native server transports receive events through their host endpoint and
@@ -120,7 +156,10 @@ public static class ServiceProviderExtensions
                         .GetRequired(eventRegistration.TransportName) as ISendTransport,
                     provider.GetRequiredService<IMessageSerializer>(),
                     eventRegistration.Channel,
-                    eventRegistration.TransportName)!);
+                    eventRegistration.TransportName,
+                    provider.GetRequiredService<OutboundOperationExecutor>(),
+                    provider.GetRequiredService<IMessageEnvelopeFactory>(),
+                    provider.GetRequiredService<LargePayloadOffloader>())!);
         }
 
         return services;

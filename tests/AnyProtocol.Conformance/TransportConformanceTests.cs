@@ -11,6 +11,60 @@ public abstract class TransportConformanceTests
     protected virtual TimeSpan Timeout => TimeSpan.FromSeconds(2);
 
     [Fact]
+    public async Task Capability_contract_matches_declared_semantics()
+    {
+        await using var transport = CreateTransport();
+
+        Assert.IsAssignableFrom<ISendTransport>(transport);
+        Assert.IsAssignableFrom<ISubscriptionTransport>(transport);
+        Assert.Equal(
+            transport.Capabilities.HasFlag(TransportCapabilities.CompetingConsumers),
+            transport.Semantics.SupportsCompetingConsumers);
+    }
+
+    [Fact]
+    public async Task Pre_cancelled_send_does_not_reach_a_subscriber()
+    {
+        await using var transport = CreateTransport();
+        var sender = Assert.IsAssignableFrom<ISendTransport>(transport);
+        var subscriber = Assert.IsAssignableFrom<ISubscriptionTransport>(transport);
+        var received = 0;
+        await using var subscription = await subscriber.SubscribeAsync(
+            "conformance.cancelled",
+            (_, _) =>
+            {
+                Interlocked.Increment(ref received);
+                return ValueTask.CompletedTask;
+            });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => sender.SendAsync(
+                    "conformance.cancelled",
+                    new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty),
+                    cancellation.Token)
+                .AsTask());
+        await Task.Delay(50);
+
+        Assert.Equal(0, Volatile.Read(ref received));
+    }
+
+    [Fact]
+    public async Task Readiness_probe_is_non_destructive_when_supported()
+    {
+        await using var transport = CreateTransport();
+        if (transport is not ITransportReadiness readiness)
+        {
+            return;
+        }
+
+        var result = await readiness.CheckReadinessAsync();
+
+        Assert.NotEqual(TransportReadinessState.NotReady, result.State);
+    }
+
+    [Fact]
     public async Task Send_and_subscribe_preserve_body_and_headers()
     {
         await using var transport = CreateTransport();

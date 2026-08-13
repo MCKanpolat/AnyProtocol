@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
@@ -21,7 +22,9 @@
     <ProjectReference Include="..\..\src\AnyProtocol\AnyProtocol.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.DependencyInjection.Microsoft\AnyProtocol.DependencyInjection.Microsoft.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Protocol.InMemory\AnyProtocol.Protocol.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Serializer.MessagePack\AnyProtocol.Serializer.MessagePack.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Serializer.TextJson\AnyProtocol.Serializer.TextJson.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Storage.Abstraction\AnyProtocol.Storage.Abstraction.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Generator\AnyProtocol.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

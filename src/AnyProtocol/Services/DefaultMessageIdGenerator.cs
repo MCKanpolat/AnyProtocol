@@ -14,6 +14,6 @@ public sealed class DefaultMessageIdGenerator : IMessageIdGenerator
     public string Generate()
     {
         return Guid.NewGuid()
-            .ToString();
+            .ToString("N");
     }
 }

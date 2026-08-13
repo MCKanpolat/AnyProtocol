@@ -1,10 +1,11 @@
 using AnyProtocol.Abstraction;
+using AnyProtocol.Protocol.Abstraction;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
 namespace AnyProtocol.Protocol.RabbitMq;
 
-internal sealed class RabbitMqSubscription : IAsyncDisposable
+internal sealed class RabbitMqSubscription : ITransportSubscription
 {
     private readonly IChannel _channel;
     private readonly RabbitMqMessagingProtocol _owner;
@@ -13,6 +14,8 @@ internal sealed class RabbitMqSubscription : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _acknowledgementGate = new(1, 1);
     private readonly List<string> _consumerTags = [];
+    private readonly object _acceptingGate = new();
+    private bool _accepting = true;
     private int _disposed;
 
     internal event Action? Disposed;
@@ -124,6 +127,11 @@ internal sealed class RabbitMqSubscription : IAsyncDisposable
             return;
         }
 
+        lock (_acceptingGate)
+        {
+            _accepting = false;
+        }
+
         await _lifetime.CancelAsync();
         if (_channel.IsOpen)
         {
@@ -144,6 +152,32 @@ internal sealed class RabbitMqSubscription : IAsyncDisposable
         Disposed?.Invoke();
     }
 
+    public async ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        lock (_acceptingGate)
+        {
+            _accepting = false;
+        }
+
+        foreach (var consumerTag in _consumerTags)
+        {
+            if (_channel.IsOpen)
+            {
+                await _channel.BasicCancelAsync(
+                        consumerTag,
+                        noWait: false,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
     private async Task OnReceivedAsync(object sender, BasicDeliverEventArgs delivery)
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -154,8 +188,26 @@ internal sealed class RabbitMqSubscription : IAsyncDisposable
             delivery.Body);
         try
         {
-            await _handler(envelope, cancellation.Token);
+            ValueTask handling;
+            lock (_acceptingGate)
+            {
+                if (!_accepting)
+                {
+                    handling = ValueTask.FromException(
+                        new MessageAdmissionRejectedException());
+                }
+                else
+                {
+                    handling = _handler(envelope, cancellation.Token);
+                }
+            }
+
+            await handling;
             await AcknowledgeAsync(delivery.DeliveryTag, cancellation.Token);
+        }
+        catch (MessageAdmissionRejectedException)
+        {
+            await NegativeAcknowledgeIfOpenAsync(delivery.DeliveryTag);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {

@@ -19,7 +19,7 @@ internal sealed class DiagnosticsFilter : IMessageFilter
         try
         {
             await next(context).ConfigureAwait(false);
-            var outcome = context.Response?.Headers.Get(
+            var outcome = MessageContextRuntime.Get(context).Result.Response?.Headers.Get(
                 HeaderNames.MessageType,
                 MessageType.Response) == MessageType.Fault
                 ? "fault"

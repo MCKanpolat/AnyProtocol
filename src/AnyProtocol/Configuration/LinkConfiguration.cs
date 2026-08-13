@@ -6,9 +6,9 @@ using System.Runtime.CompilerServices;
 namespace AnyProtocol.Configuration;
 
 /// <summary>
-/// Stores the validated runtime configuration for a AnyProtocol bus.
+/// Stores mutable link composition state while a <see cref="LinkBuilder"/> is being configured.
 /// </summary>
-public sealed class LinkConfiguration
+internal sealed class LinkDefinition
 {
     internal Dictionary<ProtocolKey, IMessagingProtocol> Transports { get; } = [];
 
@@ -22,47 +22,9 @@ public sealed class LinkConfiguration
 
     internal List<IMessageFilter> ServerFilters { get; } = [];
 
-    /// <summary>
-    /// Gets or initializes the serializer.
-    /// </summary>
-    /// <value>The serializer.</value>
-    public IMessageSerializer? Serializer { get; internal set; }
+    internal IMessageSerializer? Serializer { get; set; }
 
-    /// <summary>
-    /// Gets the registered transports.
-    /// </summary>
-    /// <value>The registered transports.</value>
-    public IReadOnlyDictionary<ProtocolKey, IMessagingProtocol> RegisteredTransports => Transports;
-
-    /// <summary>
-    /// Gets the client registrations.
-    /// </summary>
-    /// <value>The client registrations.</value>
-    public IReadOnlyList<ClientRegistration> ClientRegistrations => Clients;
-
-    /// <summary>
-    /// Gets the server registrations.
-    /// </summary>
-    /// <value>The server registrations.</value>
-    public IReadOnlyList<ServerRegistration> ServerRegistrations => Servers;
-
-    /// <summary>
-    /// Gets the event registrations.
-    /// </summary>
-    /// <value>The event registrations.</value>
-    public IReadOnlyList<EventRegistration> EventRegistrations => Events;
-
-    /// <summary>
-    /// Gets the registered client filters.
-    /// </summary>
-    /// <value>The registered client filters.</value>
-    public IReadOnlyList<IMessageFilter> RegisteredClientFilters => ClientFilters;
-
-    /// <summary>
-    /// Gets the registered server filters.
-    /// </summary>
-    /// <value>The registered server filters.</value>
-    public IReadOnlyList<IMessageFilter> RegisteredServerFilters => ServerFilters;
+    internal LargePayloadOffloadOptions? LargePayloadOffload { get; set; }
 
     internal void Validate(ContractDescriptorFactory descriptorFactory)
     {
@@ -70,6 +32,8 @@ public sealed class LinkConfiguration
         {
             throw new InvalidOperationException("A message serializer must be configured.");
         }
+
+        ValidateLargePayloadOffload();
 
         foreach (var registration in Clients)
         {
@@ -142,11 +106,6 @@ public sealed class LinkConfiguration
                     registration,
                     transport,
                     "event subscriptions");
-                RequireCapability(
-                    registration,
-                    transport,
-                    TransportCapabilities.PublishSubscribe,
-                    "event publish/subscribe");
             }
 
             if (registration.ConsumerGroup is not null)
@@ -219,6 +178,34 @@ public sealed class LinkConfiguration
         }
     }
 
+    private void ValidateLargePayloadOffload()
+    {
+        if (LargePayloadOffload is null)
+        {
+            return;
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(LargePayloadOffload.StoreName);
+        if (LargePayloadOffload.MaxInlinePayloadBytes <= 0)
+        {
+            throw new InvalidOperationException(
+                "MaxInlinePayloadBytes must be greater than zero when large-payload offload is enabled.");
+        }
+
+        if (LargePayloadOffload.MaxStoredPayloadBytes <=
+            LargePayloadOffload.MaxInlinePayloadBytes)
+        {
+            throw new InvalidOperationException(
+                "MaxStoredPayloadBytes must be greater than MaxInlinePayloadBytes.");
+        }
+
+        if (LargePayloadOffload.TimeToLive <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                "TimeToLive must be greater than zero when large-payload offload is enabled.");
+        }
+    }
+
     private static void ValidateGeneratedContract(Type contractType, IMessageSerializer serializer)
     {
         if (!RuntimeFeature.IsDynamicCodeSupported)
@@ -260,8 +247,6 @@ public sealed class LinkConfiguration
                 "server responses",
                 protocol);
             RequireCapability(registration, protocol, transport,
-                TransportCapabilities.PublishSubscribe, "server subscriptions");
-            RequireCapability(registration, protocol, transport,
                 TransportCapabilities.CompetingConsumers, "competing server consumers");
         }
 
@@ -278,22 +263,8 @@ public sealed class LinkConfiguration
         if (!isServer &&
             methods.Any(method =>
                 method.Operation == ContractOperation.Request || method.ExpectReply) &&
-            transport.Capabilities.HasFlag(TransportCapabilities.NativeRequestReply))
+            transport is not IRequestReplyTransport)
         {
-            RequireInterface<ContractRegistration, IRequestReplyTransport>(
-                registration,
-                transport,
-                "native request/reply",
-                protocol);
-        }
-
-        if (!isServer &&
-            methods.Any(method =>
-                method.Operation == ContractOperation.Request || method.ExpectReply) &&
-            !transport.Capabilities.HasFlag(TransportCapabilities.NativeRequestReply))
-        {
-            RequireCapability(registration, protocol, transport,
-                TransportCapabilities.PublishSubscribe, "request/reply emulation");
             RequireInterface<ContractRegistration, ISubscriptionTransport>(
                 registration,
                 transport,
@@ -308,19 +279,8 @@ public sealed class LinkConfiguration
 
         if (!isServer &&
             methods.Any(method => method.Operation == ContractOperation.Stream) &&
-            transport.Capabilities.HasFlag(TransportCapabilities.NativeStreaming))
-        {
-            RequireInterface<ContractRegistration, IStreamingTransport>(
-                registration,
-                transport,
-                "native streaming",
-                protocol);
-        }
-
-        if (!isServer &&
-            methods.Any(method => method.Operation == ContractOperation.Stream) &&
-            !transport.Capabilities.HasFlag(TransportCapabilities.NativeStreaming) &&
-            !transport.Capabilities.HasFlag(TransportCapabilities.PublishSubscribe))
+            transport is not IStreamingTransport &&
+            (transport is not ISubscriptionTransport || transport is not ISendTransport))
         {
             throw new InvalidOperationException(
                 $"Contract '{registration.ContractType.FullName}' contains streaming methods, " +
@@ -330,10 +290,8 @@ public sealed class LinkConfiguration
 
         if (!isServer &&
             methods.Any(method => method.Operation == ContractOperation.Stream) &&
-            !transport.Capabilities.HasFlag(TransportCapabilities.NativeStreaming))
+            transport is not IStreamingTransport)
         {
-            RequireCapability(registration, protocol, transport,
-                TransportCapabilities.PublishSubscribe, "stream emulation");
             RequireInterface<ContractRegistration, ISubscriptionTransport>(
                 registration,
                 transport,

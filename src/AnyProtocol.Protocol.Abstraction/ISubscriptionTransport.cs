@@ -15,7 +15,11 @@ public interface ISubscriptionTransport : IMessagingProtocol
     /// <param name="options">The options that control the operation.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the subscription.</returns>
-    ValueTask<IAsyncDisposable> SubscribeAsync(
+    /// <remarks>
+    /// Durable transports should requeue or leave uncommitted a delivery when the handler throws
+    /// <see cref="MessageAdmissionRejectedException"/>.
+    /// </remarks>
+    ValueTask<ITransportSubscription> SubscribeAsync(
         string channel,
         Func<TransportEnvelope, CancellationToken, ValueTask> handler,
         SubscriptionOptions? options = null,

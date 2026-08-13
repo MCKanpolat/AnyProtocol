@@ -22,7 +22,7 @@ public sealed class MessagePackMessageSerializer : IMessageSerializer
     /// </summary>
     public MessagePackMessageSerializer()
     {
-        _streamManager =  _streamManager = new RecyclableMemoryStreamManager(
+        _streamManager = new RecyclableMemoryStreamManager(
             new RecyclableMemoryStreamManager.Options(BlockSize, LargeBufferMultiple, MaxBufferSize,
                                                       100 * BlockSize, MaxBufferSize * 4) { GenerateCallStacks = false, AggressiveBufferReturn = false });
 
@@ -62,6 +62,10 @@ public sealed class MessagePackMessageSerializer : IMessageSerializer
 
             return memoryStream.GetReadOnlySequence()
                 .ToArray();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -104,6 +108,10 @@ public sealed class MessagePackMessageSerializer : IMessageSerializer
             return memoryStream.GetReadOnlySequence()
                 .ToArray();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new SerializationFailedException($"Failed to serialize message of type {type.FullName}", ex);
@@ -144,6 +152,10 @@ public sealed class MessagePackMessageSerializer : IMessageSerializer
             memoryStream.Seek(0, SeekOrigin.Begin);
 
             return await MessagePackSerializer.DeserializeAsync<T>(memoryStream, ContractlessStandardResolver.Options, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -186,6 +198,10 @@ public sealed class MessagePackMessageSerializer : IMessageSerializer
 
             return await MessagePackSerializer.DeserializeAsync(type, memoryStream, ContractlessStandardResolver.Options, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new SerializationFailedException($"Failed to deserialize message of type {type.FullName}", ex);
@@ -197,6 +213,5 @@ public sealed class MessagePackMessageSerializer : IMessageSerializer
     /// </summary>
     public void Dispose()
     {
-        //cleanup
     }
 }

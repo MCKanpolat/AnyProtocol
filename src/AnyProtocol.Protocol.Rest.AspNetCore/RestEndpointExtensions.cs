@@ -76,9 +76,10 @@ public static class RestEndpointExtensions
         var services = endpoints.ServiceProvider;
         _ = services.GetRequiredService<RestEndpointMarker>();
         var options = services.GetService<RestEndpointOptions>() ?? new RestEndpointOptions();
-        var configuration = services.GetRequiredService<LinkConfiguration>();
-        var descriptorFactory = services.GetRequiredService<ContractDescriptorFactory>();
+        var runtimePlan = services.GetRequiredService<RuntimePlan>();
         var registry = services.GetRequiredService<TransportRegistry>();
+        var envelopeFactory = services.GetRequiredService<IMessageEnvelopeFactory>();
+        var admission = services.GetRequiredService<IRequestAdmission>();
         var operationRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var protocol in registry.Entries
                      .Select(static pair => pair.Value)
@@ -87,21 +88,17 @@ public static class RestEndpointExtensions
             protocol.MarkMapped();
         }
 
-        var routes = configuration.ServerRegistrations
-            .SelectMany(
-                registration => registration.Protocols
-                    .Where(protocol =>
-                        registry.TryGet(protocol, out var transport) &&
-                        transport is RestServerProtocol)
-                    .SelectMany(
-                        protocol => descriptorFactory.Create(registration.ContractType).Methods
-                            .Select(method => new RestRoute(registration, method, protocol))))
+        var routes = runtimePlan.ServerRoutes
+            .Where(route =>
+                registry.TryGet(route.Protocol, out var transport) &&
+                transport is RestServerProtocol)
+            .Select(static route => new RestRoute(route.Registration, route.Method, route.Protocol))
             .ToArray();
-        var eventRoutes = configuration.EventRegistrations
+        var eventRoutes = runtimePlan.EventPlans
             .Where(
-                registration =>
-                    registry.GetRequired(registration.TransportName) is RestServerProtocol)
-            .Select(registration => new RestEventRoute(registration))
+                eventPlan =>
+                    registry.GetRequired(eventPlan.Registration.TransportName) is RestServerProtocol)
+            .Select(static eventPlan => new RestEventRoute(eventPlan.Registration))
             .ToArray();
         var channels = routes.Select(route => route.Method.Channel)
             .Concat(eventRoutes.Select(route => route.Registration.Channel))
@@ -137,7 +134,9 @@ public static class RestEndpointExtensions
                         context,
                         channel,
                         methodRoutes,
-                        httpMethod == "POST" ? eventTable : []));
+                        httpMethod == "POST" ? eventTable : [],
+                        envelopeFactory,
+                        admission));
             }
 
             if (options.MapOperationEndpoints)
@@ -149,7 +148,9 @@ public static class RestEndpointExtensions
                         route,
                         routePrefix,
                         options,
-                        operationRoutes);
+                        operationRoutes,
+                        envelopeFactory,
+                        admission);
                 }
             }
         }
@@ -162,7 +163,9 @@ public static class RestEndpointExtensions
         RestRoute route,
         string routePrefix,
         RestEndpointOptions options,
-        ISet<string> operationRoutes)
+        ISet<string> operationRoutes,
+        IMessageEnvelopeFactory envelopeFactory,
+        IRequestAdmission admission)
     {
         var httpMethod = GetOperationHttpMethod(route, options);
         var pattern = $"{NormalizePrefix(routePrefix)}/{GetOperationRoute(route, options)}";
@@ -181,7 +184,13 @@ public static class RestEndpointExtensions
                 context.Request.Headers[HeaderNames.Contract] = route.Method.ContractName;
                 context.Request.Headers[HeaderNames.Method] = route.Method.MethodName;
                 context.Request.Headers[HeaderNames.Channel] = route.Method.Channel;
-                return HandleRequestAsync(context, route.Method.Channel, [route], []);
+                return HandleRequestAsync(
+                    context,
+                    route.Method.Channel,
+                    [route],
+                    [],
+                    envelopeFactory,
+                    admission);
             }));
 
         endpoint
@@ -219,8 +228,18 @@ public static class RestEndpointExtensions
         HttpContext httpContext,
         string channel,
         IReadOnlyList<RestRoute> routes,
-        IReadOnlyList<RestEventRoute> eventRoutes)
+        IReadOnlyList<RestEventRoute> eventRoutes,
+        IMessageEnvelopeFactory envelopeFactory,
+        IRequestAdmission admission)
     {
+        using var admissionLease = admission.TryEnter();
+        if (admissionLease is null)
+        {
+            httpContext.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            httpContext.Response.Headers.RetryAfter = "1";
+            return;
+        }
+
         var headers = new MessageHeaders();
         foreach (var header in httpContext.Request.Headers)
         {
@@ -228,11 +247,16 @@ public static class RestEndpointExtensions
         }
 
         headers[HeaderNames.ContentType] = httpContext.Request.ContentType;
-        headers[HeaderNames.Channel] ??= channel;
-        headers[HeaderNames.MessageType] ??= MessageType.Request.ToString();
-        headers[HeaderNames.MessageId] ??= Guid.NewGuid().ToString("N");
-        headers[HeaderNames.CorrelationId] ??= headers[HeaderNames.MessageId];
-        headers[HeaderNames.ReplyTo] = CaptureProtocol.ReplyChannel;
+        headers = new MessageHeaders(
+            envelopeFactory.CreateOutboundHeaders(
+                headers.Get(HeaderNames.MessageType, MessageType.Request),
+                channel,
+                source: headers,
+                replyTo: CaptureProtocol.ReplyChannel));
+        if (string.IsNullOrWhiteSpace(headers[HeaderNames.CorrelationId]))
+        {
+            headers[HeaderNames.CorrelationId] = headers[HeaderNames.MessageId];
+        }
 
         var contractName = headers[HeaderNames.Contract];
         var methodName = headers[HeaderNames.Method];
@@ -303,8 +327,8 @@ public static class RestEndpointExtensions
         if (response.Headers.Get(HeaderNames.MessageType, MessageType.Response) == MessageType.Fault)
         {
             var serializer = httpContext.RequestServices
-                .GetRequiredService<LinkConfiguration>()
-                .Serializer!;
+                .GetRequiredService<RuntimePlan>()
+                .Serializer;
             var fault = serializer.Deserialize<FaultMessage>(response.Body) ??
                         new FaultMessage("handler_failed", "The handler returned an empty fault.");
             await WriteProblemAsync(httpContext, fault, GetStatusCode(fault.Code))
@@ -622,9 +646,7 @@ public static class RestEndpointExtensions
 
         public TransportEnvelope? Response { get; private set; }
 
-        public TransportCapabilities Capabilities =>
-            TransportCapabilities.NativeHeaders |
-            TransportCapabilities.NativeRequestReply;
+        public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
         public ValueTask SendAsync(
             string channel,

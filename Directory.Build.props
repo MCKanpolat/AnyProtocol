@@ -17,7 +17,19 @@
     <RepositoryBranch>develop</RepositoryBranch>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>AnyProtocol_icon.png</PackageIcon>
+    <CheckSdkVulnerabilities>true</CheckSdkVulnerabilities>
+    <CheckEolTargetFramework>true</CheckEolTargetFramework>
+    <ContinuousIntegrationBuild Condition="'$(ContinuousIntegrationBuild)' == '' and '$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EnablePackageValidation Condition="'$(IsPackable)' != 'false'">true</EnablePackageValidation>
   </PropertyGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
     <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="\" />

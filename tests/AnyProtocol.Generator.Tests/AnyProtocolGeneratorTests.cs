@@ -8,6 +8,107 @@ namespace AnyProtocol.Generator.Tests;
 public sealed class AnyProtocolGeneratorTests
 {
     [Fact]
+    public void Generates_event_consumer_dispatch_for_closed_registration()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using AnyProtocol.Abstraction;
+            using AnyProtocol.Configuration;
+
+            namespace Demo;
+
+            public sealed record OrderPlaced(string Id);
+
+            public sealed class OrderPlacedHandler : IEventConsumer<OrderPlaced>
+            {
+                public ValueTask ConsumeAsync(OrderPlaced e) => ValueTask.CompletedTask;
+            }
+
+            public static class Setup
+            {
+                public static void Configure(LinkBuilder link)
+                    => link.AddEventHandler<OrderPlaced, OrderPlacedHandler>();
+            }
+            """;
+
+        var (result, outputCompilation) = RunWithCompilation(source);
+
+        AssertNoErrors(result);
+        Assert.Empty(outputCompilation.GetDiagnostics().Where(
+            static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var generated = GetGeneratedSource(result);
+        Assert.Contains("GeneratedEventDispatchRegistry.Register", generated);
+        Assert.Contains("typeof(global::Demo.OrderPlaced)", generated);
+        Assert.Contains("typeof(global::Demo.OrderPlacedHandler)", generated);
+        Assert.Contains(
+            "((global::Demo.OrderPlacedHandler)target).ConsumeAsync((global::Demo.OrderPlaced)message)",
+            generated);
+        Assert.Contains("ModuleInitializer", generated);
+    }
+
+    [Fact]
+    public void Reports_diagnostic_for_open_generic_event_registration()
+    {
+        const string source = """
+            using AnyProtocol.Abstraction;
+            using AnyProtocol.Configuration;
+
+            namespace Demo;
+
+            public static class Setup
+            {
+                public static void Configure<TEvent, THandler>(LinkBuilder link)
+                    where TEvent : class
+                    where THandler : class, IEventConsumer<TEvent>
+                    => link.AddEventHandler<TEvent, THandler>();
+            }
+            """;
+
+        var diagnostic = AssertDiagnostic(Run(source), "CLNK007");
+        Assert.Contains("event and handler types must be closed", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void Deduplicates_duplicate_event_registration()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using AnyProtocol.Abstraction;
+            using AnyProtocol.Configuration;
+
+            namespace Demo;
+
+            public sealed record OrderPlaced(string Id);
+
+            public sealed class OrderPlacedHandler : IEventConsumer<OrderPlaced>
+            {
+                public ValueTask ConsumeAsync(OrderPlaced e) => ValueTask.CompletedTask;
+            }
+
+            public static class Setup
+            {
+                public static void Configure(LinkBuilder link)
+                {
+                    link.AddEventHandler<OrderPlaced, OrderPlacedHandler>();
+                    link.AddEventHandler<OrderPlaced, OrderPlacedHandler>();
+                }
+            }
+            """;
+
+        var (result, outputCompilation) = RunWithCompilation(source);
+
+        AssertNoErrors(result);
+        Assert.Empty(outputCompilation.GetDiagnostics().Where(
+            static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Equal(
+            1,
+            result.GeneratedTrees.Count(tree =>
+                tree.ToString().Contains(
+                    "GeneratedEventDispatchRegistry.Register",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void Generates_complete_metadata_for_registered_contract()
     {
         const string source = """

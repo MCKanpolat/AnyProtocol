@@ -368,11 +368,9 @@ public sealed class ObservabilityTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class TimeoutTransport : INativeRequestReplyTransport
+    private sealed class TimeoutTransport : IRequestReplyTransport
     {
-        public TransportCapabilities Capabilities =>
-            TransportCapabilities.NativeRequestReply |
-            TransportCapabilities.NativeHeaders;
+        public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
         public ValueTask<TransportEnvelope> RequestAsync(
             string channel,
@@ -398,11 +396,9 @@ public sealed class ObservabilityTests
     }
 
     private sealed class CancellationTransport(CancellationTokenSource cancellation) :
-        INativeRequestReplyTransport
+        IRequestReplyTransport
     {
-        public TransportCapabilities Capabilities =>
-            TransportCapabilities.NativeRequestReply |
-            TransportCapabilities.NativeHeaders;
+        public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
         public ValueTask<TransportEnvelope> RequestAsync(
             string channel,

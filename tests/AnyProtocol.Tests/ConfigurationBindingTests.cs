@@ -37,7 +37,7 @@ public sealed class ConfigurationBindingTests
                     server => server.UseProtocols(ProtocolKey.Create("primary"))));
 
         using var provider = services.BuildServiceProvider();
-        var link = provider.GetRequiredService<AnyProtocol.Configuration.LinkConfiguration>();
+        var link = provider.GetRequiredService<AnyProtocol.Configuration.RuntimePlan>();
 
         Assert.Equal(
             ProtocolKey.Create("secondary"),

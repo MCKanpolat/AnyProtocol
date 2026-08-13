@@ -8,8 +8,8 @@ namespace AnyProtocol.Services;
 public sealed class DefaultDateTimeProvider : IDateTimeProvider
 {
     /// <summary>
-    /// Gets now.
+    /// Gets the current UTC time.
     /// </summary>
     /// <returns>The result of the get now operation.</returns>
-    public DateTime GetNow() => DateTime.UtcNow;
+    public DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow;
 }

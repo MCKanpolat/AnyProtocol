@@ -152,6 +152,44 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void Message_context_does_not_expose_runtime_service_or_result_state()
+    {
+        var properties = typeof(IMessageContext).GetProperties();
+
+        Assert.DoesNotContain(properties, property => property.Name == "Services");
+        Assert.DoesNotContain(properties, property => property.Name == "Response");
+        Assert.DoesNotContain(properties, property => property.Name == "Exception");
+        Assert.False(
+            properties.Single(property => property.Name == nameof(IMessageContext.CancellationToken))
+                .CanWrite);
+    }
+
+    [Fact]
+    public async Task Timeout_filter_scopes_cancellation_without_mutating_the_original_context()
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        var context = new MessageContext(
+            new MessageHeaders(),
+            ReadOnlyMemory<byte>.Empty,
+            "orders",
+            MessageType.Request,
+            MessageDirection.Outbound,
+            callerCancellation.Token);
+        var observedToken = default(CancellationToken);
+
+        await new TimeoutFilter(TimeSpan.FromSeconds(1)).InvokeAsync(
+            context,
+            current =>
+            {
+                observedToken = current.CancellationToken;
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal(callerCancellation.Token, context.CancellationToken);
+        Assert.NotEqual(callerCancellation.Token, observedToken);
+    }
+
+    [Fact]
     public async Task Stream_engine_rejects_out_of_order_items()
     {
         await using var transport = new OutOfOrderStreamTransport();
@@ -183,9 +221,7 @@ public sealed class CoreTests
     {
         private Func<TransportEnvelope, CancellationToken, ValueTask>? _replyHandler;
 
-        public TransportCapabilities Capabilities =>
-            TransportCapabilities.PublishSubscribe |
-            TransportCapabilities.NativeHeaders;
+        public TransportCapabilities Capabilities => TransportCapabilities.NativeHeaders;
 
         public async ValueTask SendAsync(
             string channel,
@@ -201,14 +237,14 @@ public sealed class CoreTests
                 cancellationToken);
         }
 
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
+        public ValueTask<ITransportSubscription> SubscribeAsync(
             string channel,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
             SubscriptionOptions? options = null,
             CancellationToken cancellationToken = default)
         {
             _replyHandler = handler;
-            return ValueTask.FromResult<IAsyncDisposable>(new Subscription());
+            return ValueTask.FromResult<ITransportSubscription>(new Subscription());
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -223,8 +259,11 @@ public sealed class CoreTests
                 },
                 ReadOnlyMemory<byte>.Empty);
 
-        private sealed class Subscription : IAsyncDisposable
+        private sealed class Subscription : ITransportSubscription
         {
+            public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+                => ValueTask.CompletedTask;
+
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }

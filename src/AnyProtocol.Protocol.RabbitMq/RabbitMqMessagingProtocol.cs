@@ -38,7 +38,6 @@ public sealed class RabbitMqMessagingProtocol :
     /// </summary>
     /// <value>The capabilities.</value>
     public TransportCapabilities Capabilities =>
-        TransportCapabilities.PublishSubscribe |
         TransportCapabilities.CompetingConsumers |
         TransportCapabilities.NativeHeaders;
 
@@ -51,7 +50,6 @@ public sealed class RabbitMqMessagingProtocol :
         DeliveryGuarantee = TransportDeliveryGuarantee.AtLeastOnce,
         Ordering = TransportOrdering.PerChannel,
         Durability = TransportDurability.Durable,
-        SupportsPublishSubscribe = true,
         SupportsCompetingConsumers = true,
         SupportsBackpressure = true,
         SupportsCancellation = true
@@ -118,7 +116,7 @@ public sealed class RabbitMqMessagingProtocol :
     /// <param name="options">The options that control the operation.</param>
     /// <param name="cancellationToken">The token used to cancel the operation.</param>
     /// <returns>A task whose result contains the subscribe async.</returns>
-    public ValueTask<IAsyncDisposable> SubscribeAsync(
+    public ValueTask<ITransportSubscription> SubscribeAsync(
         string channel,
         Func<TransportEnvelope, CancellationToken, ValueTask> handler,
         SubscriptionOptions? options = null,
@@ -305,7 +303,7 @@ public sealed class RabbitMqMessagingProtocol :
             cancellationToken: cancellationToken);
     }
 
-    private async ValueTask<IAsyncDisposable> SubscribeCoreAsync(
+    private async ValueTask<ITransportSubscription> SubscribeCoreAsync(
         string channel,
         Func<TransportEnvelope, CancellationToken, ValueTask> handler,
         SubscriptionOptions? options,

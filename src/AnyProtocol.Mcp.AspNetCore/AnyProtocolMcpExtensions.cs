@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AnyProtocol.Configuration;
+using AnyProtocol.Abstraction;
 using AnyProtocol.Protocol.Abstraction;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -123,13 +124,18 @@ public static class AnyProtocolMcpExtensions
                             arguments,
                             cancellationToken)
                         .ConfigureAwait(false);
+                    var content = result.IsError
+                        ? JsonSerializer.SerializeToElement(
+                            new { error = result.Error },
+                            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                        : result.StructuredContent;
                     var text = result.IsError
                         ? $"{result.ErrorCode}: {result.Message}"
-                        : result.StructuredContent?.GetRawText() ?? "{}";
+                        : content?.GetRawText() ?? "{}";
                     return new CallToolResult
                     {
                         IsError = result.IsError,
-                        StructuredContent = result.StructuredContent,
+                        StructuredContent = content,
                         Content = [new TextContentBlock { Text = text }]
                     };
                 });

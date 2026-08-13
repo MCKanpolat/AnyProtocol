@@ -67,28 +67,10 @@ public sealed record TransportSemantics
     public required TransportDurability Durability { get; init; }
 
     /// <summary>
-    /// Gets or initializes a value indicating whether supports publish subscribe applies.
-    /// </summary>
-    /// <value>true when supports publish subscribe applies; otherwise, false.</value>
-    public bool SupportsPublishSubscribe { get; init; }
-
-    /// <summary>
     /// Gets or initializes a value indicating whether supports competing consumers applies.
     /// </summary>
     /// <value>true when supports competing consumers applies; otherwise, false.</value>
     public bool SupportsCompetingConsumers { get; init; }
-
-    /// <summary>
-    /// Gets or initializes a value indicating whether supports native request reply applies.
-    /// </summary>
-    /// <value>true when supports native request reply applies; otherwise, false.</value>
-    public bool SupportsNativeRequestReply { get; init; }
-
-    /// <summary>
-    /// Gets or initializes a value indicating whether supports native streaming applies.
-    /// </summary>
-    /// <value>true when supports native streaming applies; otherwise, false.</value>
-    public bool SupportsNativeStreaming { get; init; }
 
     /// <summary>
     /// Gets or initializes a value indicating whether supports partitioning applies.
@@ -117,16 +99,8 @@ public sealed record TransportSemantics
             DeliveryGuarantee = TransportDeliveryGuarantee.AtMostOnce,
             Ordering = TransportOrdering.None,
             Durability = TransportDurability.Volatile,
-            SupportsPublishSubscribe =
-                capabilities.HasFlag(TransportCapabilities.PublishSubscribe),
             SupportsCompetingConsumers =
                 capabilities.HasFlag(TransportCapabilities.CompetingConsumers),
-            SupportsNativeRequestReply =
-                capabilities.HasFlag(TransportCapabilities.NativeRequestReply),
-            SupportsNativeStreaming =
-                capabilities.HasFlag(TransportCapabilities.NativeStreaming),
-            SupportsBackpressure =
-                capabilities.HasFlag(TransportCapabilities.NativeStreaming),
             SupportsCancellation = true
         };
 }

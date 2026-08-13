@@ -17,6 +17,7 @@ namespace AnyProtocol.Generator;
 public sealed class AnyProtocolGenerator : IIncrementalGenerator
 {
     private const string LinkBuilderType = "AnyProtocol.Configuration.LinkBuilder";
+    private const string EventConsumerType = "AnyProtocol.Abstraction.IEventConsumer<TEvent>";
     private const string ChannelAttribute = "AnyProtocol.Abstraction.ChannelAttribute";
     private const string ExpectReplyAttribute = "AnyProtocol.Abstraction.ExpectReplyAttribute";
     private const string IdempotentAttribute = "AnyProtocol.Abstraction.IdempotentAttribute";
@@ -98,6 +99,14 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor InvalidEventRegistration = new(
+        "CLNK009",
+        "AnyProtocol event registration is invalid",
+        "Event registration for '{0}' is unsupported: {1}",
+        "AnyProtocol",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     /// <summary>
     /// Performs the initialize operation.
     /// </summary>
@@ -117,6 +126,23 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
                         }
                     },
                 static (syntaxContext, _) => FindRegistration(syntaxContext))
+            .Where(static registration => registration is not null)
+            .Select(static (registration, _) => registration!)
+            .Collect();
+
+        var eventRegistrations = context.SyntaxProvider.CreateSyntaxProvider(
+                static (node, _) =>
+                    node is InvocationExpressionSyntax
+                    {
+                        Expression: MemberAccessExpressionSyntax
+                        {
+                            Name: GenericNameSyntax
+                            {
+                                Identifier.ValueText: "AddEventHandler"
+                            }
+                        }
+                    },
+                static (syntaxContext, _) => FindEventRegistration(syntaxContext))
             .Where(static registration => registration is not null)
             .Select(static (registration, _) => registration!)
             .Collect();
@@ -150,6 +176,54 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
                     Generate(productionContext, contract);
                 }
             });
+
+        context.RegisterSourceOutput(
+            eventRegistrations,
+            static (productionContext, discovered) =>
+            {
+                var emitted = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var registration in discovered)
+                {
+                    if (registration.EventType is null ||
+                        registration.HandlerType is null ||
+                        ContainsTypeParameter(registration.RegisteredEventType) ||
+                        ContainsTypeParameter(registration.RegisteredHandlerType))
+                    {
+                        productionContext.ReportDiagnostic(
+                            Diagnostic.Create(
+                                UndiscoverableRegistration,
+                                registration.Location,
+                                registration.DisplayName,
+                                "the event and handler types must be closed; register each closed pair " +
+                                "directly with AddEventHandler<TEvent, THandler>()"));
+                        continue;
+                    }
+
+                    if (!ImplementsEventConsumer(registration.HandlerType, registration.EventType))
+                    {
+                        productionContext.ReportDiagnostic(
+                            Diagnostic.Create(
+                                InvalidEventRegistration,
+                                registration.Location,
+                                registration.EventType.ToDisplayString(),
+                                $"handler '{registration.HandlerType.ToDisplayString()}' must implement " +
+                                $"IEventConsumer<{registration.EventType.ToDisplayString()}>"));
+                        continue;
+                    }
+
+                    var key = registration.EventType.ToDisplayString(RuntimeTypeFormat) + "|" +
+                              registration.HandlerType.ToDisplayString(RuntimeTypeFormat);
+                    if (!emitted.Add(key))
+                    {
+                        continue;
+                    }
+
+                    GenerateEventDispatcher(
+                        productionContext,
+                        registration.EventType,
+                        registration.HandlerType);
+                }
+            });
     }
 
     private static RegistrationCandidate? FindRegistration(GeneratorSyntaxContext context)
@@ -167,6 +241,25 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
         return new RegistrationCandidate(
             registeredType as INamedTypeSymbol,
             registeredType,
+            invocation.GetLocation());
+    }
+
+    private static EventRegistrationCandidate? FindEventRegistration(GeneratorSyntaxContext context)
+    {
+        var invocation = (InvocationExpressionSyntax)context.Node;
+        if (context.SemanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method ||
+            method.Name != "AddEventHandler" ||
+            method.TypeArguments.Length != 2 ||
+            method.ContainingType.ToDisplayString() != LinkBuilderType)
+        {
+            return null;
+        }
+
+        return new EventRegistrationCandidate(
+            method.TypeArguments[0] as INamedTypeSymbol,
+            method.TypeArguments[1] as INamedTypeSymbol,
+            method.TypeArguments[0],
+            method.TypeArguments[1],
             invocation.GetLocation());
     }
 
@@ -261,6 +354,41 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
 
         var source = RenderProxy(contract, methods.Select(static group => group[0]).ToArray());
         context.AddSource(GetHintName(contract), SourceText.From(source, Encoding.UTF8));
+    }
+
+    private static void GenerateEventDispatcher(
+        SourceProductionContext context,
+        INamedTypeSymbol eventType,
+        INamedTypeSymbol handlerType)
+    {
+        var eventName = eventType.ToDisplayString(TypeFormat);
+        var handlerName = handlerType.ToDisplayString(TypeFormat);
+        var identity = eventType.ToDisplayString() + "|" + handlerType.ToDisplayString();
+        var registrationName = "AnyProtocolEventDispatch_" +
+                               Sanitize(eventType.Name) + "_" +
+                               Sanitize(handlerType.Name) + "_" +
+                               GetStableHash(identity);
+        var builder = new StringBuilder();
+        builder.AppendLine("// <auto-generated />");
+        builder.AppendLine("#nullable enable");
+        builder.AppendLine("namespace AnyProtocol.Generated");
+        builder.AppendLine("{");
+        builder.Append("    internal static class ").Append(registrationName).AppendLine();
+        builder.AppendLine("    {");
+        builder.AppendLine("        [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        builder.AppendLine("        internal static void Register()");
+        builder.AppendLine("        {");
+        builder.Append("            global::AnyProtocol.GeneratedEventDispatchRegistry.Register(typeof(")
+            .Append(eventName).AppendLine("),");
+        builder.Append("                typeof(").Append(handlerName).AppendLine("),");
+        builder.Append("                static (target, message) => ((").Append(handlerName)
+            .Append(")target).ConsumeAsync((").Append(eventName).AppendLine(")message));");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine("}");
+        context.AddSource(
+            GetEventHintName(eventType, handlerType),
+            SourceText.From(builder.ToString(), Encoding.UTF8));
     }
 
     private static bool ValidateMethod(
@@ -835,6 +963,13 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
             namedType.ContainingType is not null &&
             ContainsTypeParameter(namedType.ContainingType));
 
+    private static bool ImplementsEventConsumer(
+        INamedTypeSymbol handlerType,
+        INamedTypeSymbol eventType)
+        => handlerType.AllInterfaces.Any(
+            candidate => candidate.OriginalDefinition.ToDisplayString() == EventConsumerType &&
+                         SymbolEqualityComparer.Default.Equals(candidate.TypeArguments[0], eventType));
+
     private static IPropertySymbol[] GetPartitionKeyProperties(INamedTypeSymbol type)
     {
         var properties = new List<IPropertySymbol>();
@@ -877,6 +1012,13 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
 
     private static string GetHintName(INamedTypeSymbol contract)
         => $"{Sanitize(contract.ToDisplayString())}.{GetStableHash(contract.ToDisplayString())}.g.cs";
+
+    private static string GetEventHintName(INamedTypeSymbol eventType, INamedTypeSymbol handlerType)
+    {
+        var identity = eventType.ToDisplayString() + "|" + handlerType.ToDisplayString();
+        return $"Event.{Sanitize(eventType.ToDisplayString())}.{Sanitize(handlerType.ToDisplayString())}." +
+               $"{GetStableHash(identity)}.g.cs";
+    }
 
     private static string GetStableHash(string value)
     {
@@ -930,6 +1072,36 @@ public sealed class AnyProtocolGenerator : IIncrementalGenerator
         public INamedTypeSymbol? Contract { get; }
 
         public ITypeSymbol RegisteredType { get; }
+
+        public Location Location { get; }
+    }
+
+    private sealed class EventRegistrationCandidate
+    {
+        public EventRegistrationCandidate(
+            INamedTypeSymbol? eventType,
+            INamedTypeSymbol? handlerType,
+            ITypeSymbol registeredEventType,
+            ITypeSymbol registeredHandlerType,
+            Location location)
+        {
+            EventType = eventType;
+            HandlerType = handlerType;
+            RegisteredEventType = registeredEventType;
+            RegisteredHandlerType = registeredHandlerType;
+            Location = location;
+        }
+
+        public INamedTypeSymbol? EventType { get; }
+
+        public INamedTypeSymbol? HandlerType { get; }
+
+        public ITypeSymbol RegisteredEventType { get; }
+
+        public ITypeSymbol RegisteredHandlerType { get; }
+
+        public string DisplayName =>
+            $"{RegisteredEventType.ToDisplayString()} / {RegisteredHandlerType.ToDisplayString()}";
 
         public Location Location { get; }
     }

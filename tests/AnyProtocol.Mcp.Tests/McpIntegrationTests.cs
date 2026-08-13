@@ -45,6 +45,9 @@ public interface ICalculationService
         CalculationRequest request,
         CancellationToken cancellationToken);
 
+    [McpTool(Name = "calculator_retryable")]
+    ValueTask<CalculationResponse> RetryableAsync(CalculationRequest request);
+
     ValueTask<CalculationResponse> HiddenAsync(CalculationRequest request);
 }
 
@@ -68,6 +71,14 @@ public sealed class CalculationService : ICalculationService
         await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         return new CalculationResponse(0, _instance);
     }
+
+    public ValueTask<CalculationResponse> RetryableAsync(CalculationRequest request)
+        => throw new AnyProtocolFaultException(
+            new FaultMessage(
+                "calculation_retryable",
+                "Calculation can be retried.",
+                Retryable: true,
+                Details: [new FaultDetail("operation", "retry")]));
 
     public ValueTask<CalculationResponse> HiddenAsync(CalculationRequest request)
         => ValueTask.FromResult(new CalculationResponse(0, _instance));
@@ -155,7 +166,7 @@ public sealed class McpIntegrationTests
         Assert.Equal(42, restResult.Value);
         Assert.Equal(42, grpcResult.Value);
         Assert.Contains(tools, tool => tool.Name == "calculator_add");
-        Assert.Single(app.Services.GetRequiredService<LinkConfiguration>().ServerRegistrations);
+        Assert.Single(app.Services.GetRequiredService<RuntimePlan>().ServerRegistrations);
     }
 
     [Fact]
@@ -165,7 +176,9 @@ public sealed class McpIntegrationTests
 
         var catalog = provider.GetRequiredService<McpToolCatalog>();
 
-        Assert.Equal(["calculator_add", "calculator_fail", "calculator_wait"], catalog.Tools.Select(
+        Assert.Equal(
+            ["calculator_add", "calculator_fail", "calculator_retryable", "calculator_wait"],
+            catalog.Tools.Select(
             static tool => tool.Name).Order());
         var add = catalog.GetRequired("calculator_add");
         Assert.True(add.ReadOnly);
@@ -173,6 +186,20 @@ public sealed class McpIntegrationTests
         Assert.Equal("object", add.InputSchema.GetProperty("type").GetString());
         Assert.True(add.InputSchema.GetProperty("properties").TryGetProperty("left", out _));
         Assert.Throws<KeyNotFoundException>(() => catalog.GetRequired("HiddenAsync"));
+    }
+
+    [Fact]
+    public void Catalog_uses_the_compiled_runtime_plan_binding()
+    {
+        using var provider = CreateServices().BuildServiceProvider();
+        var plan = provider.GetRequiredService<RuntimePlan>();
+        var binding = Assert.Single(
+            plan.McpToolPlans.Where(static candidate => candidate.Name == "calculator_add"));
+        var tool = provider.GetRequiredService<McpToolCatalog>().GetRequired("calculator_add");
+
+        Assert.Same(binding.Method, tool.Method);
+        Assert.Same(binding.Registration, tool.Registration);
+        Assert.True(tool.Idempotent);
     }
 
     [Fact]
@@ -189,6 +216,8 @@ public sealed class McpIntegrationTests
 
         Assert.True(denied.IsError);
         Assert.Equal("permission_denied", denied.ErrorCode);
+        Assert.NotNull(denied.Error);
+        Assert.False(denied.Error.Retryable);
         Assert.False(allowed.IsError);
         Assert.Equal(["calculator.use"], authorization.LastPermissions);
     }
@@ -250,6 +279,7 @@ public sealed class McpIntegrationTests
         var success = await invoker.InvokeAsync("calculator_add", arguments);
         var secondSuccess = await invoker.InvokeAsync("calculator_add", arguments);
         var failure = await invoker.InvokeAsync("calculator_fail", arguments);
+        var retryableFailure = await invoker.InvokeAsync("calculator_retryable", arguments);
 
         Assert.False(success.IsError);
         Assert.Equal(
@@ -260,7 +290,14 @@ public sealed class McpIntegrationTests
             secondSuccess.StructuredContent!.Value.GetProperty("instance").GetInt32());
         Assert.True(failure.IsError);
         Assert.Equal("handler_failed", failure.ErrorCode);
+        Assert.NotNull(failure.Error);
+        Assert.Empty(failure.Error.Details);
         Assert.DoesNotContain("System.", failure.Message, StringComparison.Ordinal);
+        Assert.True(retryableFailure.IsError);
+        Assert.Equal("calculation_retryable", retryableFailure.ErrorCode);
+        Assert.NotNull(retryableFailure.Error);
+        Assert.True(retryableFailure.Error.Retryable);
+        Assert.Equal([new FaultDetail("operation", "retry")], retryableFailure.Error.Details);
     }
 
     [Fact]
@@ -307,7 +344,7 @@ public sealed class McpIntegrationTests
                 new Dictionary<string, object?> { ["left"] = 20, ["right"] = 22 });
 
             Assert.Equal(
-                ["calculator_add", "calculator_fail", "calculator_wait"],
+                ["calculator_add", "calculator_fail", "calculator_retryable", "calculator_wait"],
                 tools.Select(static tool => tool.Name).Order());
             Assert.False(result.IsError);
             Assert.Equal(
