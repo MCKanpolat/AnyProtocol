@@ -87,7 +87,9 @@ Never send `cl-auth-token` over plaintext or an untrusted broker/network. AnyPro
 - Configure Kafka SASL/TLS, ACLs, replication, retention, and dead-letter access; disable automatic topic creation where required.
 - Configure RabbitMQ TLS, a dedicated virtual host/user, least privilege, queue limits, and DLQ access; do not expose the management UI publicly.
 - Do not expose ZeroMQ bind ports publicly without an authenticated encrypted boundary.
-- Treat messages as untrusted input; register request validators and cap payload/request sizes in hosts and brokers.
+- Treat messages as untrusted input; register request validators and install `ValidationFilter`
+  explicitly, then cap payload/request sizes in hosts and brokers. See
+  [validation configuration](CONFIGURATION.md#validation-error-handling-and-message-metadata).
 - Bound inline, stored, and total-stream payload sizes; alert on storage failures and integrity faults.
 - Keep retries limited to truly idempotent handlers and configure a durable inbox for at-least-once one-way delivery.
 - Use generated `JsonSerializerContext` metadata for Native AOT and avoid permissive polymorphic deserialization.

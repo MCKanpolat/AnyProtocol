@@ -33,7 +33,10 @@ The solution contains 29 source projects.
   providers, lifecycle, and generated-registry integration.
 - `Protocol.Abstraction`, `Serializer.Abstraction`, `Encoder.Abstraction`, `Storage.Abstraction`,
   `DependencyInjection.Abstraction`, and `Logging.Abstraction` remain independent provider SPIs;
-  `Storage.Abstraction` owns the provider-neutral inbox store contract.
+  `Storage.Abstraction` owns the provider-neutral inbox/deduplication and large-payload store
+  contracts. `Logging.Abstraction` is paired with the optional Microsoft logging adapter.
+- `MessageIdGenerator.Ulid` is an optional provider for ULID message identifiers; the core default
+  remains a GUID-based generator.
 - REST, gRPC, Kafka, RabbitMQ, ZeroMQ, InMemory, and MCP remain independently deployable adapters.
 - Generator and code-fix projects remain `netstandard2.0` compiler extensions.
 

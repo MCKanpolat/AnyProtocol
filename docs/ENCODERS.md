@@ -19,6 +19,25 @@ application message -> IMessageSerializer -> TransportEnvelope -> IEnvelopeCodec
 
 All codecs validate the envelope version and common size limits. Header keys are case-insensitive, header values are strings, and malformed or trailing input is rejected. Compression also bounds decompression size and ratio.
 
+## Limits and compression defaults
+
+Unless an options object supplies different values, `EnvelopeCodecLimits.Default` is:
+
+| Limit | Default |
+|---|---:|
+| `MaxFrameSize` | 64 MiB |
+| `MaxBodySize` | 64 MiB |
+| `MaxHeaderCount` | 1,024 |
+| `MaxHeaderBytes` | 1 MiB |
+| `MaxDecompressedSize` | 64 MiB |
+
+All size limits are byte counts. `MessagePackEnvelopeCodecOptions` and
+`ProtobufEnvelopeCodecOptions` use these limits by default. `CompressedEnvelopeCodecOptions`
+defaults to GZip, compresses encoded frames at or above a 256-byte threshold, caps the
+compression ratio at 100, and rejects double compression unless `AllowDoubleCompression` is
+explicitly enabled. Brotli is also supported. The decompressed output remains subject to
+`MaxDecompressedSize`.
+
 ## Selecting a codec per transport
 
 Codec selection belongs to the transport boundary. It is not a global serializer setting. gRPC and ZeroMQ keep their existing constructors, which default to `BinaryEnvelopeCodec`, and also accept an `IEnvelopeCodec`:

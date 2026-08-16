@@ -161,6 +161,57 @@ The application owns these example environment names. Never print the URI becaus
 
 All serialization failures are wrapped in `SerializationFailedException`. Producer and consumer processes must agree on serializer and message shape.
 
+## Validation, error handling, and message metadata
+
+Request validation is opt-in. Register a validator in DI and add `ValidationFilter` to the
+server pipeline; registering a validator alone does not activate it:
+
+```csharp
+public sealed class GetOrderValidator : IRequestValidator<GetOrder>
+{
+    public ValueTask<IValidationResult> ValidateAsync(
+        GetOrder request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new ValidationResult();
+        if (string.IsNullOrWhiteSpace(request.Id))
+        {
+            result.AddError(new ValidationError("Id is required.", nameof(GetOrder.Id)));
+        }
+
+        return ValueTask.FromResult<IValidationResult>(result);
+    }
+}
+
+services.AddScoped<IRequestValidator<GetOrder>, GetOrderValidator>();
+services.AddAnyProtocol(link => link
+    // serializer, transports, and contracts
+    .AddServerFilter(new ValidationFilter()));
+```
+
+An invalid result becomes an `AnyProtocolValidationException` with fault code
+`validation_failed` and structured error details. REST maps this fault to HTTP 400. The filter
+resolves validators from the current handler scope, so scoped validators are supported.
+
+Register `IErrorHandler` implementations in DI when the application needs audit, alerting, or
+custom error reporting. AnyProtocol invokes them for handler, materialization, fault-delivery,
+and dead-letter error paths; an error handler failure is logged and does not replace the
+original operation fault.
+
+The default `IMessageIdGenerator` emits GUID `N` strings and the default envelope factory owns
+message ID, `SentAt`, correlation, and reply metadata. Override these services before
+`AddAnyProtocol` when the application needs a different policy:
+
+```csharp
+services.AddSingleton<IMessageIdGenerator, UlidMessageIdGenerator>();
+services.AddSingleton<IMessageEnvelopeFactory, CustomMessageEnvelopeFactory>();
+```
+
+The ULID implementation is supplied by the optional `AnyProtocol.MessageIdGenerator.Ulid`
+package. Custom envelope factories should preserve the standard metadata contract; use the
+[metadata generation allowlist](METADATA_ALLOWLIST.md) when deciding which identifiers may be
+application-generated.
+
 ## Timeout, retry, and idempotency
 
 `WithTimeout(TimeSpan)` sets the client request timeout and rejects non-positive values. `WithRetry(int maxAttempts)` sets total attempts, not retry count, and rejects values below one.
@@ -201,8 +252,20 @@ services.AddAnyProtocol(link => link
 
 `ISchemaRegistry` is the provider-neutral contract for centralized schema versions. The built-in
 `InMemorySchemaRegistry` and `JsonSchemaCompatibilityChecker` support deterministic local
-backward/forward/full compatibility checks; production deployments can supply a durable registry
-adapter without changing contract code.
+backward/forward/full compatibility checks:
+
+```csharp
+var registry = new InMemorySchemaRegistry();
+await registry.RegisterAsync(
+    subject: "orders",
+    format: "json-schema",
+    definition: "{}",
+    compatibility: SchemaCompatibilityMode.Backward);
+```
+
+The registry is caller-managed and is not automatically wired into transports or serializers.
+Production deployments can supply a durable registry adapter without changing contract code;
+the built-in registry is intended for local composition and tests.
 
 ## Lifecycle
 
@@ -249,6 +312,6 @@ Configuration fails before the service provider is returned when:
 - per-partition ordering is required without a partition key on every operation;
 - the same server route is registered more than once on one transport;
 - a transport name is duplicated;
-- timeout, retry, concurrency, Kafka, REST route, or ZeroMQ option validation fails;
+- timeout, retry, concurrency, Kafka, RabbitMQ, REST route, codec, or ZeroMQ option validation fails;
 - Native AOT generated registration or serializer metadata is incomplete.
 - a large-payload policy has invalid bounds/TTL or its named store is not registered.
