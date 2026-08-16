@@ -6,8 +6,9 @@ into each operation it actually supports.
 
 ## API boundary classification
 
-- Application API: `LinkBuilder`, contract attributes, client/event abstractions, fault types,
-  payload policy options, and `ILargePayloadStore`.
+- Application API: `LinkBuilder`, contract attributes, client/event abstractions, fault and
+  validation types, message metadata/schema contracts, payload policy options, and
+  `ILargePayloadStore`.
 - Provider SPI: `IMessagingProtocol`, operation capability interfaces, `TransportEnvelope`,
   `TransportSemantics`, codecs, and subscription contracts.
 - Hosting SPI: `RuntimePlan`, `MessageDispatcher`, `TransportRegistry`,

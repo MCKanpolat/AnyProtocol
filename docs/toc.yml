@@ -38,5 +38,9 @@
   href: SUPPORT_POLICY.md
 - name: Architecture
   href: ARCHITECTURE.md
+- name: Metadata generation allowlist
+  href: METADATA_ALLOWLIST.md
+- name: Transport development
+  href: TRANSPORT_DEVELOPMENT.md
 - name: API reference
   href: api/

@@ -27,6 +27,8 @@ Choose the transport that matches the deployment boundary and delivery guarantee
 - [Deployment](DEPLOYMENT.md)
 - [Observability](OBSERVABILITY.md)
 - [Security](SECURITY.md)
+- [Metadata generation allowlist](METADATA_ALLOWLIST.md)
+- [Transport development](TRANSPORT_DEVELOPMENT.md)
 - [Support policy](SUPPORT_POLICY.md)
 - [Architecture](ARCHITECTURE.md)
 - [API reference](xref:AnyProtocol)

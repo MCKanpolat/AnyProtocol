@@ -8,7 +8,7 @@
 
 # AnyProtocol
 
-AnyProtocol is a .NET contract-first messaging library. A single interface can be registered as a local service or carried over REST, gRPC, Kafka, RabbitMQ, or ZeroMQ, with request/reply, events, generated proxies, transport validation, health checks, and built-in diagnostics.
+AnyProtocol is a .NET contract-first messaging library. A single interface can be registered as a local service or carried over REST, gRPC, Kafka, RabbitMQ, or ZeroMQ, with optional MCP tool exposure, request/reply, events, generated proxies, transport validation, health checks, and built-in diagnostics.
 
 One logical server registration can be exposed through several protocols at the same time. Each client selects one protocol in its own configuration; neither the contract nor the service implementation contains transport-specific code.
 
@@ -28,6 +28,9 @@ One logical server registration can be exposed through several protocols at the 
 | ZeroMQ | Emulated | Yes | Emulated | At most once | Volatile | Per channel |
 
 ¹ Per-channel ordering requires one active consumer/handler for the queue; concurrent handlers can complete out of order.
+
+MCP is an opt-in server exposure protocol rather than a client transport; tool calls have no
+independent delivery, durability, or ordering guarantee in this matrix.
 
 See [transport semantics](https://mckanpolat.github.io/AnyProtocol/TRANSPORT_SEMANTICS.html) before choosing a production transport.
 
@@ -59,10 +62,12 @@ dotnet add package AnyProtocol.Serializer.TextJson
 
 | Purpose | Package |
 |---|---|
-| Contracts and core pipeline | `AnyProtocol`, `AnyProtocol.Abstraction` |
+| Contracts, schema registry, and core pipeline | `AnyProtocol`, `AnyProtocol.Abstraction` |
 | Microsoft DI and hosted lifecycle | `AnyProtocol.DependencyInjection.Microsoft` |
 | Payload serialization (JSON / MessagePack) | `AnyProtocol.Serializer.TextJson`, `AnyProtocol.Serializer.MessagePack` |
 | Envelope codecs (MessagePack / Protobuf / compression) | `AnyProtocol.Encoder.MessagePack`, `AnyProtocol.Encoder.Protobuf`, `AnyProtocol.Encoder.Compression` |
+| Logging abstraction and Microsoft logging adapter | `AnyProtocol.Logging.Abstraction`, `AnyProtocol.Logging.Microsoft` |
+| Optional ULID message IDs | `AnyProtocol.MessageIdGenerator.Ulid` |
 | In-process transport | `AnyProtocol.Protocol.InMemory` |
 | REST client / ASP.NET Core server | `AnyProtocol.Protocol.Rest`, `AnyProtocol.Protocol.Rest.AspNetCore` |
 | gRPC client / ASP.NET Core server | `AnyProtocol.Protocol.Grpc`, `AnyProtocol.Protocol.Grpc.AspNetCore` |
@@ -71,8 +76,11 @@ dotnet add package AnyProtocol.Serializer.TextJson
 | Large payload contract / Redis provider | `AnyProtocol.Storage.Abstraction`, `AnyProtocol.Storage.Redis` |
 | Compile-time contract generation | `AnyProtocol.Generator` |
 
-Schema Registry is not shipped. Large payload offload is an optional, provider-neutral feature;
-see the [large payload guide](docs/LARGE_PAYLOADS.md). It is disabled by default.
+Schema contracts plus the built-in `InMemorySchemaRegistry`/`JsonSchemaCompatibilityChecker` are
+shipped in the core packages. The registry is caller-managed: no durable external registry
+provider is bundled, so production applications can supply their own adapter. Large payload
+offload is an optional, provider-neutral feature; see the [large payload guide](docs/LARGE_PAYLOADS.md).
+It is disabled by default.
 
 ## Envelope codecs
 
@@ -216,6 +224,8 @@ Every selected protocol is validated against every contract operation during sta
 - [Deployment](https://mckanpolat.github.io/AnyProtocol/DEPLOYMENT.html)
 - [Observability](https://mckanpolat.github.io/AnyProtocol/OBSERVABILITY.html)
 - [Security](https://mckanpolat.github.io/AnyProtocol/SECURITY.html)
+- [Metadata generation allowlist](https://mckanpolat.github.io/AnyProtocol/METADATA_ALLOWLIST.html)
+- [Transport development](https://mckanpolat.github.io/AnyProtocol/TRANSPORT_DEVELOPMENT.html)
 - [Support policy](docs/SUPPORT_POLICY.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [API reference](https://mckanpolat.github.io/AnyProtocol/api/)

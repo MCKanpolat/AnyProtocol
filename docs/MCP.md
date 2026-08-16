@@ -24,10 +24,27 @@ await app.RunAsync();
 Mark only the operations intended for tool discovery:
 
 ```csharp
-[McpTool]
-public Task<Order> GetOrderAsync(string orderId, CancellationToken cancellationToken)
-    => repository.GetAsync(orderId, cancellationToken);
+[Channel("orders")]
+public interface IOrders
+{
+    [Idempotent]
+    [McpTool(
+        Name = "orders_get",
+        Description = "Reads an order by identifier.",
+        ReadOnly = true)]
+    ValueTask<Order> GetAsync(
+        GetOrderRequest request,
+        CancellationToken cancellationToken);
+}
+
+public sealed record GetOrderRequest(string OrderId);
+public sealed record Order(string Id, string Status);
 ```
+
+Put `McpTool` on the contract interface method. MCP compiles its catalog from the
+contract descriptor; putting the attribute only on an implementation method does not
+select the operation. The input request must serialize to a JSON object, so use a
+request DTO/record (or `EmptyRequest` for a no-input tool) rather than a scalar parameter.
 
 For process integrations, use `AddAnyProtocolMcpStdio()` instead of the HTTP registration and mapping.
 
@@ -36,6 +53,12 @@ For process integrations, use `AddAnyProtocolMcpStdio()` instead of the HTTP reg
 - MCP is a server exposure protocol; it is not a client transport.
 - Startup validation requires the MCP adapter to be registered and its endpoint to be mapped.
 - Contract methods without `[McpTool]` are not exposed.
+- Tool names are optional; the default is a bounded snake_case name derived from the contract and
+  method. Explicit names must be 1–128 ASCII letters, digits, `.`, `_`, or `-`.
+- Server-streaming methods cannot be published as MCP tools. Tool input schemas must be objects;
+  non-object output values are wrapped as an object result.
+- `ReadOnly`, `Destructive`, `Idempotent`, and `OpenWorld` are client-facing metadata hints.
+  Authorization, validation, and side-effect controls remain host responsibilities.
 - Apply authorization and input validation to tools like any other public endpoint.
 
 See [Security](SECURITY.md) and [Getting started](GETTING_STARTED.md) for endpoint and contract setup.
