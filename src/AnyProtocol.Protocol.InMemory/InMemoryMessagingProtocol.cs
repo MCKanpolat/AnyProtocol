@@ -25,6 +25,12 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
     public InMemoryMessagingProtocol(InMemoryProtocolOptions? options = null)
     {
         _options = options ?? new InMemoryProtocolOptions();
+        if (_options.SubscriptionQueueCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "SubscriptionQueueCapacity must be greater than zero.");
+        }
     }
 
     /// <summary>
@@ -141,7 +147,8 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
             options.ConsumerGroup,
             options.MaxConcurrency,
             handler,
-            RemoveSubscription);
+            RemoveSubscription,
+            _options.SubscriptionQueueCapacity);
 
         lock (_gate)
         {
@@ -234,17 +241,19 @@ public sealed class InMemoryMessagingProtocol : ISendTransport, ISubscriptionTra
             string? consumerGroup,
             int maxConcurrency,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
-            Action<Subscription> remove)
+            Action<Subscription> remove,
+            int queueCapacity)
         {
             Channel = channel;
             ConsumerGroup = consumerGroup;
             _handler = handler;
             _remove = remove;
-            _queue = System.Threading.Channels.Channel.CreateUnbounded<TransportEnvelope>(
-                new UnboundedChannelOptions
+            _queue = System.Threading.Channels.Channel.CreateBounded<TransportEnvelope>(
+                new BoundedChannelOptions(queueCapacity)
                 {
                     SingleReader = maxConcurrency == 1,
                     SingleWriter = false,
+                    FullMode = BoundedChannelFullMode.Wait,
                     AllowSynchronousContinuations = false
                 });
             _workers = Enumerable.Range(0, maxConcurrency)

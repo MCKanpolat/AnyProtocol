@@ -9,14 +9,20 @@ using AnyProtocol.Protocol.Grpc.AspNetCore;
 using AnyProtocol.Protocol.Rest.AspNetCore;
 using AnyProtocol.Serializer.TextJson;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
+using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text;
+using System.Text.Encodings.Web;
 using Grpc.Net.Client;
 using GrpcClientProtocol = AnyProtocol.Protocol.Grpc.GrpcMessagingProtocol;
 using RestClientProtocol = AnyProtocol.Protocol.Rest.RestMessagingProtocol;
@@ -120,6 +126,62 @@ public sealed class McpIntegrationTests
     }
 
     [Fact]
+    public async Task Http_mcp_mapping_requires_authorization_unless_the_development_opt_out_is_selected()
+    {
+        var securedBuilder = WebApplication.CreateBuilder();
+        securedBuilder.WebHost.UseTestServer();
+        securedBuilder.Services
+            .AddAuthentication("test")
+            .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("test", _ => { });
+        securedBuilder.Services.AddAuthorization(options => options.AddPolicy(
+            "administrator",
+            policy => policy.RequireClaim("role", "administrator")));
+        ConfigureAnyProtocol(securedBuilder.Services);
+        securedBuilder.Services.AddAnyProtocolMcp();
+        await using var secured = securedBuilder.Build();
+        secured.UseAuthentication();
+        secured.UseAuthorization();
+        secured.MapAnyProtocolMcp("/mcp");
+        secured.MapAnyProtocolMcp("/mcp-admin").RequireAuthorization("administrator");
+
+        var developmentBuilder = WebApplication.CreateBuilder();
+        developmentBuilder.WebHost.UseTestServer();
+        ConfigureAnyProtocol(developmentBuilder.Services);
+        developmentBuilder.Services.AddAnyProtocolMcp();
+        await using var development = developmentBuilder.Build();
+        development.MapAnyProtocolMcpAllowAnonymousForDevelopment("/mcp");
+
+        await secured.StartAsync();
+        await development.StartAsync();
+
+        var securedEndpoints = secured.Services.GetRequiredService<EndpointDataSource>().Endpoints;
+        var developmentEndpoints = development.Services.GetRequiredService<EndpointDataSource>().Endpoints;
+
+        Assert.Contains(
+            securedEndpoints,
+            endpoint => endpoint.Metadata.GetMetadata<IAuthorizeData>() is not null);
+        Assert.DoesNotContain(
+            developmentEndpoints,
+            endpoint => endpoint.Metadata.GetMetadata<IAuthorizeData>() is not null);
+
+        var securedClient = secured.GetTestClient();
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await securedClient.PostAsync("/mcp", content: null)).StatusCode);
+        securedClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("test", "authenticated");
+        Assert.NotEqual(
+            HttpStatusCode.Unauthorized,
+            (await securedClient.PostAsync("/mcp", content: null)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await securedClient.PostAsync("/mcp-admin", content: null)).StatusCode);
+        Assert.NotEqual(
+            HttpStatusCode.Unauthorized,
+            (await development.GetTestClient().PostAsync("/mcp", content: null)).StatusCode);
+    }
+
+    [Fact]
     public async Task One_server_registration_is_exposed_over_rest_grpc_and_mcp()
     {
         var builder = WebApplication.CreateBuilder();
@@ -141,7 +203,7 @@ public sealed class McpIntegrationTests
         await using var app = builder.Build();
         app.MapAnyProtocol();
         app.MapAnyProtocolGrpc();
-        app.MapAnyProtocolMcp("/mcp");
+        app.MapAnyProtocolMcpAllowAnonymousForDevelopment("/mcp");
         await app.StartAsync();
 
         var serializer = new TextJsonMessageSerializer();
@@ -311,7 +373,7 @@ public sealed class McpIntegrationTests
         var app = builder.Build();
         app.MapGet("/health", () => "ok");
         app.MapAnyProtocol("/api");
-        app.MapAnyProtocolMcp("/mcp");
+        app.MapAnyProtocolMcpAllowAnonymousForDevelopment("/mcp");
         await app.StartAsync();
 
         try
@@ -476,6 +538,30 @@ public sealed class McpIntegrationTests
             });
         services.AddAnyProtocolMcp();
         return services.BuildServiceProvider().GetRequiredService<McpToolCatalog>();
+    }
+}
+
+public sealed class TestAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+{
+    public TestAuthenticationHandler(
+        Microsoft.Extensions.Options.IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger,
+        UrlEncoder encoder)
+        : base(options, logger, encoder)
+    {
+    }
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        if (Request.Headers.Authorization.Count == 0)
+        {
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
+        var identity = new ClaimsIdentity("test");
+        identity.AddClaim(new Claim(ClaimTypes.Name, "test-user"));
+        return Task.FromResult(AuthenticateResult.Success(
+            new AuthenticationTicket(new ClaimsPrincipal(identity), "test")));
     }
 }
 

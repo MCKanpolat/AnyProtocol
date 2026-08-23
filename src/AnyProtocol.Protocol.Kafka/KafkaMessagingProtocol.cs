@@ -400,6 +400,8 @@ public sealed class KafkaMessagingProtocol :
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task[] _workers = [];
         private bool _accepting = true;
+        private int _pendingAdmissions;
+        private TaskCompletionSource? _admissionsDrained;
         private int _disposed;
 
         public KafkaSubscription(
@@ -463,15 +465,25 @@ public sealed class KafkaMessagingProtocol :
             }
         }
 
-        public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+        public async ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Task? pendingAdmissions = null;
             lock (_acceptingGate)
             {
                 _accepting = false;
+                if (_pendingAdmissions != 0)
+                {
+                    _admissionsDrained ??= new TaskCompletionSource(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    pendingAdmissions = _admissionsDrained.Task;
+                }
             }
 
-            return ValueTask.CompletedTask;
+            if (pendingAdmissions is not null)
+            {
+                await pendingAdmissions.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         private async Task ConsumeAsync(int workerIndex)
@@ -528,15 +540,19 @@ public sealed class KafkaMessagingProtocol :
                     var envelope = KafkaEnvelopeMapper.CreateEnvelope(result);
                     try
                     {
-                        ValueTask handling;
-                        lock (_acceptingGate)
+                        if (!TryReserveAdmission())
                         {
-                            if (!_accepting)
-                            {
-                                break;
-                            }
+                            break;
+                        }
 
+                        ValueTask handling;
+                        try
+                        {
                             handling = _handler(envelope, _stopping.Token);
+                        }
+                        finally
+                        {
+                            CompleteAdmission();
                         }
 
                         await handling.ConfigureAwait(false);
@@ -573,6 +589,32 @@ public sealed class KafkaMessagingProtocol :
             finally
             {
                 consumer.Close();
+            }
+        }
+
+        private bool TryReserveAdmission()
+        {
+            lock (_acceptingGate)
+            {
+                if (!_accepting)
+                {
+                    return false;
+                }
+
+                _pendingAdmissions++;
+                return true;
+            }
+        }
+
+        private void CompleteAdmission()
+        {
+            lock (_acceptingGate)
+            {
+                _pendingAdmissions--;
+                if (!_accepting && _pendingAdmissions == 0)
+                {
+                    _admissionsDrained?.TrySetResult();
+                }
             }
         }
     }

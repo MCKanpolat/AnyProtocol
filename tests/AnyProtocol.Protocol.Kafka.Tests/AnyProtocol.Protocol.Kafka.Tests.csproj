@@ -35,6 +35,7 @@
   <ItemGroup>
     <ProjectReference Include="..\AnyProtocol.Conformance\AnyProtocol.Conformance.csproj" />
     <ProjectReference Include="..\..\src\AnyProtocol.Protocol.Kafka\AnyProtocol.Protocol.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\AnyProtocol.Serializer.TextJson\AnyProtocol.Serializer.TextJson.csproj" />
   </ItemGroup>
 
 </Project>

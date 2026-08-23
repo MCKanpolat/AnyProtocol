@@ -655,7 +655,8 @@ public sealed class HardeningTests
 
         var reported = await RecordingErrorHandler.Reported.Task.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.Equal("handler_failed", exception.Fault.Code);
-        Assert.Contains("original", exception.Message);
+        Assert.Equal("An unexpected error occurred while processing the request.", exception.Message);
+        Assert.Null(exception.Fault.ExceptionType);
         Assert.IsType<InvalidOperationException>(reported);
     }
 

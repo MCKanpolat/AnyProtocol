@@ -69,6 +69,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/AnyProtocol.Conformance/AnyProtocol.Conformance.csproj" />
     <Project Path="tests/AnyProtocol.Generator.Tests/AnyProtocol.Generator.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.Logging.Microsoft.Tests/AnyProtocol.Logging.Microsoft.Tests.csproj" />
+    <Project Path="tests/AnyProtocol.MessageIdGenerator.Ulid.Tests/AnyProtocol.MessageIdGenerator.Ulid.Tests.csproj" />
     <Project Path="tests/AnyProtocol.Mcp.Tests/AnyProtocol.Mcp.Tests.csproj" />
     <Project Path="tests/AnyProtocol.Performance.Tests/AnyProtocol.Performance.Tests.csproj" />
     <Project Path="tests/AnyProtocol.Protocol.Grpc.Tests/AnyProtocol.Protocol.Grpc.Tests.csproj" />

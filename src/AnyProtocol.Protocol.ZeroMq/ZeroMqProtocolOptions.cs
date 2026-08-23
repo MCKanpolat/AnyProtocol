@@ -51,6 +51,12 @@ public sealed class ZeroMqProtocolOptions
     public int HighWatermark { get; init; } = 1_000;
 
     /// <summary>
+    /// Gets or initializes the maximum messages queued for each local subscription.
+    /// </summary>
+    /// <value>The capacity. Socket processing waits when the queue is full.</value>
+    public int SubscriptionQueueCapacity { get; init; } = 1_000;
+
+    /// <summary>
     /// Gets or initializes the poll interval.
     /// </summary>
     /// <value>The poll interval.</value>
@@ -66,6 +72,14 @@ public sealed class ZeroMqProtocolOptions
                 nameof(HighWatermark),
                 HighWatermark,
                 "HighWatermark must be greater than zero.");
+        }
+
+        if (SubscriptionQueueCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(SubscriptionQueueCapacity),
+                SubscriptionQueueCapacity,
+                "SubscriptionQueueCapacity must be greater than zero.");
         }
 
         if (PollInterval < TimeSpan.Zero)

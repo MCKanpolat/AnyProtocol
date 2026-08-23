@@ -180,16 +180,21 @@ internal sealed class FaultMessageSender
         ArgumentNullException.ThrowIfNull(exception);
         return exception switch
         {
-            AnyProtocolFaultException knownFault => knownFault.Fault,
+            AnyProtocolFaultException knownFault when
+                string.Equals(knownFault.Fault.Code, "handler_failed", StringComparison.Ordinal) =>
+                new FaultMessage(
+                    "handler_failed",
+                    "An unexpected error occurred while processing the request."),
+            AnyProtocolFaultException knownFault => knownFault.Fault with { ExceptionType = null },
             LargePayloadException payload => new FaultMessage(
                 payload.Code,
                 payload.Message,
-                payload.GetType().FullName,
+                ExceptionType: null,
                 payload.Retryable),
             _ => new FaultMessage(
                 "handler_failed",
-                exception.Message,
-                exception.GetType().FullName,
+                "An unexpected error occurred while processing the request.",
+                ExceptionType: null,
                 Retryable: false)
         };
     }

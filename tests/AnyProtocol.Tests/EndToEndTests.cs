@@ -163,7 +163,8 @@ public sealed class EndToEndTests
             async () => await client.FailAsync(new PlaceOrderRequest("broken")));
 
         Assert.Equal("handler_failed", exception.Fault.Code);
-        Assert.Contains("broken", exception.Message);
+        Assert.Equal("An unexpected error occurred while processing the request.", exception.Message);
+        Assert.Null(exception.Fault.ExceptionType);
     }
 
     [Fact]

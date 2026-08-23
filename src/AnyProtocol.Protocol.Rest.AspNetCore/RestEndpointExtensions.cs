@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Buffers;
 using AnyProtocol.Abstraction;
 using AnyProtocol.Configuration;
 using AnyProtocol.Protocol.Abstraction;
@@ -55,6 +56,13 @@ public static class RestEndpointExtensions
             throw new ArgumentException(
                 "The documented payload content type cannot be empty.",
                 nameof(configure));
+        }
+
+        if (options.MaxRequestBodyBytes < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(configure),
+                "The REST request-body limit cannot be negative.");
         }
 
         services.AddSingleton(new RestEndpointMarker());
@@ -136,7 +144,8 @@ public static class RestEndpointExtensions
                         methodRoutes,
                         httpMethod == "POST" ? eventTable : [],
                         envelopeFactory,
-                        admission));
+                        admission,
+                        options));
             }
 
             if (options.MapOperationEndpoints)
@@ -190,7 +199,8 @@ public static class RestEndpointExtensions
                     [route],
                     [],
                     envelopeFactory,
-                    admission);
+                    admission,
+                    options);
             }));
 
         endpoint
@@ -221,6 +231,7 @@ public static class RestEndpointExtensions
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
     }
 
@@ -230,7 +241,8 @@ public static class RestEndpointExtensions
         IReadOnlyList<RestRoute> routes,
         IReadOnlyList<RestEventRoute> eventRoutes,
         IMessageEnvelopeFactory envelopeFactory,
-        IRequestAdmission admission)
+        IRequestAdmission admission,
+        RestEndpointOptions options)
     {
         using var admissionLease = admission.TryEnter();
         if (admissionLease is null)
@@ -290,65 +302,86 @@ public static class RestEndpointExtensions
             return;
         }
 
-        await using var bodyStream = new MemoryStream();
-        await httpContext.Request.Body.CopyToAsync(bodyStream, httpContext.RequestAborted)
-            .ConfigureAwait(false);
-        var envelope = new TransportEnvelope(headers, bodyStream.ToArray());
-        var capture = new CaptureProtocol();
-        var dispatcher = httpContext.RequestServices.GetRequiredService<MessageDispatcher>();
-        if (eventRoute is not null)
+        PooledRequestBody body;
+        try
         {
-            await dispatcher.DispatchEventAsync(
-                    eventRoute.Registration,
-                    envelope,
-                    capture,
+            body = await ReadRequestBodyAsync(
+                    httpContext.Request,
+                    options.MaxRequestBodyBytes,
                     httpContext.RequestAborted)
                 .ConfigureAwait(false);
         }
-        else
+        catch (RequestBodyTooLargeException)
         {
-            await dispatcher.DispatchAsync(
-                    route!.Registration,
-                    route.Method,
-                    envelope,
-                    capture,
-                    httpContext.RequestAborted,
-                    route.Protocol)
-                .ConfigureAwait(false);
-        }
-
-        if (capture.Response is null)
-        {
-            httpContext.Response.StatusCode = StatusCodes.Status202Accepted;
-            return;
-        }
-
-        var response = capture.Response;
-        if (response.Headers.Get(HeaderNames.MessageType, MessageType.Response) == MessageType.Fault)
-        {
-            var serializer = httpContext.RequestServices
-                .GetRequiredService<RuntimePlan>()
-                .Serializer;
-            var fault = serializer.Deserialize<FaultMessage>(response.Body) ??
-                        new FaultMessage("handler_failed", "The handler returned an empty fault.");
-            await WriteProblemAsync(httpContext, fault, GetStatusCode(fault.Code))
+            await WriteProblemAsync(
+                    httpContext,
+                    new FaultMessage(
+                        "request_body_too_large",
+                        "The request body exceeds the configured size limit."),
+                    StatusCodes.Status413PayloadTooLarge)
                 .ConfigureAwait(false);
             return;
         }
 
-        httpContext.Response.StatusCode = StatusCodes.Status200OK;
-        foreach (var header in response.Headers)
+        using (body)
         {
-            if (!string.Equals(header.Key, HeaderNames.ContentType, StringComparison.OrdinalIgnoreCase))
+            var envelope = new TransportEnvelope(headers, body.Memory);
+            var capture = new CaptureProtocol();
+            var dispatcher = httpContext.RequestServices.GetRequiredService<MessageDispatcher>();
+            if (eventRoute is not null)
             {
-                httpContext.Response.Headers[header.Key] = header.Value;
+                await dispatcher.DispatchEventAsync(
+                        eventRoute.Registration,
+                        envelope,
+                        capture,
+                        httpContext.RequestAborted)
+                    .ConfigureAwait(false);
             }
-        }
+            else
+            {
+                await dispatcher.DispatchAsync(
+                        route!.Registration,
+                        route.Method,
+                        envelope,
+                        capture,
+                        httpContext.RequestAborted,
+                        route.Protocol)
+                    .ConfigureAwait(false);
+            }
 
-        httpContext.Response.ContentType =
-            response.Headers[HeaderNames.ContentType] ?? "application/octet-stream";
-        await httpContext.Response.Body.WriteAsync(response.Body, httpContext.RequestAborted)
-            .ConfigureAwait(false);
+            if (capture.Response is null)
+            {
+                httpContext.Response.StatusCode = StatusCodes.Status202Accepted;
+                return;
+            }
+
+            var response = capture.Response;
+            if (response.Headers.Get(HeaderNames.MessageType, MessageType.Response) == MessageType.Fault)
+            {
+                var serializer = httpContext.RequestServices
+                    .GetRequiredService<RuntimePlan>()
+                    .Serializer;
+                var fault = serializer.Deserialize<FaultMessage>(response.Body) ??
+                            new FaultMessage("handler_failed", "The handler returned an empty fault.");
+                await WriteProblemAsync(httpContext, fault, GetStatusCode(fault.Code))
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            httpContext.Response.StatusCode = StatusCodes.Status200OK;
+            foreach (var header in response.Headers)
+            {
+                if (!string.Equals(header.Key, HeaderNames.ContentType, StringComparison.OrdinalIgnoreCase))
+                {
+                    httpContext.Response.Headers[header.Key] = header.Value;
+                }
+            }
+
+            httpContext.Response.ContentType =
+                response.Headers[HeaderNames.ContentType] ?? "application/octet-stream";
+            await httpContext.Response.Body.WriteAsync(response.Body, httpContext.RequestAborted)
+                .ConfigureAwait(false);
+        }
     }
 
     private static async Task WriteProblemAsync(
@@ -360,9 +393,12 @@ public static class RestEndpointExtensions
         {
             ["code"] = fault.Code,
             ["retryable"] = fault.Retryable,
-            ["exceptionType"] = fault.ExceptionType,
-            ["details"] = fault.Details
+            ["errorId"] = context.TraceIdentifier
         };
+        if (fault.Code != "handler_failed" && fault.Details is not null)
+        {
+            extensions["details"] = fault.Details;
+        }
         var result = Results.Problem(
             detail: fault.Message,
             statusCode: statusCode,
@@ -377,8 +413,110 @@ public static class RestEndpointExtensions
             "validation_failed" => StatusCodes.Status400BadRequest,
             "permission_denied" => StatusCodes.Status403Forbidden,
             "route_not_found" => StatusCodes.Status404NotFound,
+            "request_body_too_large" => StatusCodes.Status413PayloadTooLarge,
             _ => StatusCodes.Status500InternalServerError
         };
+
+    private static async Task<PooledRequestBody> ReadRequestBodyAsync(
+        HttpRequest request,
+        long maximumBytes,
+        CancellationToken cancellationToken)
+    {
+        if (request.ContentLength is long declaredLength && declaredLength > maximumBytes)
+        {
+            throw new RequestBodyTooLargeException();
+        }
+
+        var initialCapacity = request.ContentLength is > 0 and <= int.MaxValue
+            ? (int)request.ContentLength.Value
+            : 4096;
+        var buffer = ArrayPool<byte>.Shared.Rent(Math.Max(1, initialCapacity));
+        var length = 0;
+        try
+        {
+            while (true)
+            {
+                if (length == buffer.Length)
+                {
+                    if (length == maximumBytes)
+                    {
+                        var probe = ArrayPool<byte>.Shared.Rent(1);
+                        try
+                        {
+                            if (await request.Body.ReadAsync(
+                                    probe.AsMemory(0, 1),
+                                    cancellationToken)
+                                .ConfigureAwait(false) == 0)
+                            {
+                                return new PooledRequestBody(buffer, length);
+                            }
+                        }
+                        finally
+                        {
+                            ArrayPool<byte>.Shared.Return(probe);
+                        }
+
+                        throw new RequestBodyTooLargeException();
+                    }
+
+                    var nextCapacity = checked((int)Math.Min(
+                        maximumBytes,
+                        Math.Max((long)buffer.Length * 2, length + 1L)));
+                    var expanded = ArrayPool<byte>.Shared.Rent(nextCapacity);
+                    Buffer.BlockCopy(buffer, 0, expanded, 0, length);
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    buffer = expanded;
+                }
+
+                var read = await request.Body.ReadAsync(
+                        buffer.AsMemory(length, buffer.Length - length),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (read == 0)
+                {
+                    return new PooledRequestBody(buffer, length);
+                }
+
+                if (length > maximumBytes - read)
+                {
+                    throw new RequestBodyTooLargeException();
+                }
+
+                length += read;
+            }
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    private sealed class PooledRequestBody : IDisposable
+    {
+        private byte[]? _buffer;
+
+        public PooledRequestBody(byte[] buffer, int length)
+        {
+            _buffer = buffer;
+            Memory = buffer.AsMemory(0, length);
+        }
+
+        public ReadOnlyMemory<byte> Memory { get; }
+
+        public void Dispose()
+        {
+            var buffer = Interlocked.Exchange(ref _buffer, null);
+            if (buffer is not null)
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+    }
+
+    private sealed class RequestBodyTooLargeException : Exception
+    {
+    }
 
     private static string NormalizePrefix(string routePrefix)
     {

@@ -8,6 +8,12 @@ namespace AnyProtocol.Protocol.InMemory;
 public sealed record InMemoryProtocolOptions
 {
     /// <summary>
+    /// Gets or initializes the maximum messages queued for each subscription.
+    /// </summary>
+    /// <value>The capacity. Producers wait when the queue is full.</value>
+    public int SubscriptionQueueCapacity { get; init; } = 1_000;
+
+    /// <summary>
     /// Gets or initializes the delivery delay.
     /// </summary>
     /// <value>The delivery delay.</value>

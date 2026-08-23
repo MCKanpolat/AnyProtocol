@@ -26,8 +26,11 @@ Use the same transport instance for the client and server when both ends run in 
 |---|---|
 | `DeliveryDelay` | `TimeSpan.Zero` |
 | `FaultInjector` | `null` |
+| `SubscriptionQueueCapacity` | `1,000` |
 
 `DeliveryDelay` is useful for timeout and cancellation tests. `FaultInjector` can fail a send before it reaches subscribers.
+Subscription queues are bounded and use lossless backpressure: a producer waits when a stalled
+handler fills its subscription queue. Set capacity from observed concurrency and message size.
 
 ## Semantics
 

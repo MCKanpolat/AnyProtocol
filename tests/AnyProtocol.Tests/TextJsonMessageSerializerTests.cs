@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using AnyProtocol.Serializer.Abstraction.Exceptions;
 using AnyProtocol.Serializer.TextJson;
 using Xunit;
@@ -8,6 +9,27 @@ namespace AnyProtocol.Tests;
 
 public sealed class TextJsonMessageSerializerTests
 {
+    [Fact]
+    public void SupportsType_reports_supported_and_unsupported_types()
+    {
+        var serializer = new TextJsonMessageSerializer();
+
+        Assert.True(serializer.SupportsType(typeof(TestMessage)));
+        var unsupported = new TextJsonMessageSerializer(
+            new JsonSerializerOptions { TypeInfoResolver = new ThrowingTypeInfoResolver() });
+        Assert.False(unsupported.SupportsType(typeof(TestMessage)));
+        Assert.Throws<ArgumentNullException>(() => serializer.SupportsType(null!));
+    }
+
+    [Fact]
+    public void Constructors_reject_null_configuration()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new TextJsonMessageSerializer((System.Text.Json.JsonSerializerOptions)null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new TextJsonMessageSerializer((System.Text.Json.Serialization.JsonSerializerContext)null!));
+    }
+
     [Fact]
     public async Task Runtime_type_deserialize_async_wraps_invalid_json_like_generic_overload()
     {
@@ -37,4 +59,10 @@ public sealed class TextJsonMessageSerializerTests
     }
 
     private sealed record TestMessage(string Value);
+
+    private sealed class ThrowingTypeInfoResolver : IJsonTypeInfoResolver
+    {
+        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => throw new NotSupportedException("test resolver");
+    }
 }

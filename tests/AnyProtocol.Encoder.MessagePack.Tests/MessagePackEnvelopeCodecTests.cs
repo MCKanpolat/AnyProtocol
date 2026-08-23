@@ -91,6 +91,39 @@ public sealed class MessagePackEnvelopeCodecTests
     }
 
     [Fact]
+    public void Encode_rejects_null_inputs_and_invalid_headers()
+    {
+        var codec = new MessagePackEnvelopeCodec();
+
+        Assert.Throws<ArgumentNullException>(() => codec.Encode(null!));
+        AssertInvalid(
+            () => codec.Encode(
+                new TransportEnvelope(
+                    new TestHeaders([new(" ", "value")]),
+                    ReadOnlyMemory<byte>.Empty)));
+    }
+
+    [Fact]
+    public void Decode_rejects_invalid_wire_types_before_deserialization()
+    {
+        AssertInvalid(new byte[] { 0x80 });
+        AssertInvalid(new byte[] { 0x92, 0x01, 0x80 });
+        AssertInvalid(new byte[] { 0x93, 0xa1, 0x31, 0x80, 0xc4, 0x00 });
+        AssertInvalid(new byte[] { 0x93, 0x01, 0x00, 0xc4, 0x00 });
+        AssertInvalid(new byte[] { 0x93, 0x01, 0x81, 0x00, 0xa1, 0x31, 0xc4, 0x00 });
+        AssertInvalid(new byte[] { 0x93, 0x01, 0x81, 0xa1, 0x78, 0x00, 0xc4, 0x00 });
+        AssertInvalid(new byte[] { 0x93, 0x01, 0x80, 0x00 });
+    }
+
+    [Fact]
+    public void Options_reject_null_limits()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new MessagePackEnvelopeCodec(
+                new MessagePackEnvelopeCodecOptions { Limits = null! }));
+    }
+
+    [Fact]
     public void Decode_rejects_trailing_input()
     {
         var frame = new MessagePackEnvelopeCodec()
