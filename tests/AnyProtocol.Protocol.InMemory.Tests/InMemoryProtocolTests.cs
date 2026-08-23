@@ -16,6 +16,91 @@ public sealed class InMemoryConformanceTests : TransportConformanceTests
 public sealed class InMemoryRequestReplyTests
 {
     [Fact]
+    public void Subscription_queue_capacity_must_be_positive()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new InMemoryMessagingProtocol(
+                new InMemoryProtocolOptions { SubscriptionQueueCapacity = 0 }));
+
+        Assert.Contains("SubscriptionQueueCapacity", exception.Message);
+    }
+
+    [Fact]
+    public async Task Subscription_queue_applies_lossless_backpressure_when_a_handler_stalls()
+    {
+        await using var transport = new InMemoryMessagingProtocol(
+            new InMemoryProtocolOptions { SubscriptionQueueCapacity = 1 });
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handled = 0;
+        await using var subscription = await transport.SubscribeAsync(
+            "events.backpressure",
+            async (_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref handled) == 1)
+                {
+                    firstStarted.TrySetResult();
+                    await releaseFirst.Task.WaitAsync(cancellationToken);
+                }
+            });
+
+        await transport.SendAsync(
+            "events.backpressure",
+            new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty));
+        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await transport.SendAsync(
+            "events.backpressure",
+            new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty));
+        var blocked = transport.SendAsync(
+                "events.backpressure",
+                new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty))
+            .AsTask();
+
+        await Task.Delay(100);
+        Assert.False(blocked.IsCompleted);
+
+        releaseFirst.TrySetResult();
+        await blocked.WaitAsync(TimeSpan.FromSeconds(2));
+        await SpinWaitAsync(() => Volatile.Read(ref handled) == 3);
+    }
+
+    [Fact]
+    public async Task Blocked_send_honors_its_cancellation_token()
+    {
+        await using var transport = new InMemoryMessagingProtocol(
+            new InMemoryProtocolOptions { SubscriptionQueueCapacity = 1 });
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var subscription = await transport.SubscribeAsync(
+            "events.cancellation",
+            async (_, cancellationToken) =>
+            {
+                firstStarted.TrySetResult();
+                await releaseFirst.Task.WaitAsync(cancellationToken);
+            });
+
+        await transport.SendAsync(
+            "events.cancellation",
+            new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty));
+        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await transport.SendAsync(
+            "events.cancellation",
+            new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty));
+        using var cancellation = new CancellationTokenSource();
+        var blocked = transport.SendAsync(
+                "events.cancellation",
+                new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty),
+                cancellation.Token)
+            .AsTask();
+
+        await Task.Delay(100);
+        Assert.False(blocked.IsCompleted);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => blocked);
+
+        releaseFirst.TrySetResult();
+    }
+    [Fact]
     public async Task Fault_injector_fails_send_explicitly()
     {
         var expected = new InvalidOperationException("injected");
@@ -209,5 +294,15 @@ public sealed class InMemoryRequestReplyTests
                 new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty),
                 TimeSpan.FromSeconds(2),
                 cancellation.Token));
+    }
+
+    private static async Task SpinWaitAsync(Func<bool> condition)
+    {
+        var timeout = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < timeout, "The expected handler calls did not complete.");
+            await Task.Delay(10);
+        }
     }
 }

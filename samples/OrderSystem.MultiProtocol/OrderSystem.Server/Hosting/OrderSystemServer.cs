@@ -46,7 +46,7 @@ public static class OrderSystemServer
             Readiness = "/health/ready"
         }));
         http1Endpoints.MapAnyProtocol("/api");
-        http1Endpoints.MapAnyProtocolMcp("/mcp");
+        http1Endpoints.MapAnyProtocolMcpAllowAnonymousForDevelopment("/mcp");
         http1Endpoints.MapHealthChecks(
             "/health/live",
             new HealthCheckOptions

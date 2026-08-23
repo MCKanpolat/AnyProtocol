@@ -55,10 +55,33 @@ public static class AnyProtocolMcpExtensions
     public static IEndpointConventionBuilder MapAnyProtocolMcp(
         this IEndpointRouteBuilder endpoints,
         string pattern = "/mcp")
+        => MapAnyProtocolMcpCore(endpoints, pattern, requireAuthorization: true);
+
+    /// <summary>
+    /// Maps an explicitly anonymous MCP endpoint intended only for local development.
+    /// </summary>
+    /// <remarks>
+    /// Production HTTP MCP endpoints should use <see cref="MapAnyProtocolMcp"/> and an
+    /// application authorization policy. Stdio transport has a separate process boundary.
+    /// </remarks>
+    public static IEndpointConventionBuilder MapAnyProtocolMcpAllowAnonymousForDevelopment(
+        this IEndpointRouteBuilder endpoints,
+        string pattern = "/mcp")
+        => MapAnyProtocolMcpCore(endpoints, pattern, requireAuthorization: false);
+
+    private static IEndpointConventionBuilder MapAnyProtocolMcpCore(
+        IEndpointRouteBuilder endpoints,
+        string pattern,
+        bool requireAuthorization)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(pattern);
         var mappedEndpoint = endpoints.MapMcp(pattern);
+        if (requireAuthorization)
+        {
+            mappedEndpoint.RequireAuthorization();
+        }
+
         endpoints.ServiceProvider
             .GetRequiredService<ProtocolExposureRegistry>()
             .MarkMapped(ProtocolKey.Mcp);

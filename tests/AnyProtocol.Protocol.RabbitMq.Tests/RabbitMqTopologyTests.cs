@@ -5,6 +5,23 @@ namespace AnyProtocol.Protocol.RabbitMq.Tests;
 public sealed class RabbitMqTopologyTests
 {
     [Fact]
+    public void Constructor_and_subscription_validate_required_names()
+    {
+        Assert.Throws<ArgumentNullException>(() => new RabbitMqTopology(null!));
+        Assert.Throws<ArgumentException>(() => new RabbitMqTopology(
+            new RabbitMqProtocolOptions
+            {
+                ConnectionUri = new Uri("amqp://localhost"),
+                ExchangeName = " "
+            }));
+
+        var topology = CreateTopology();
+        Assert.Throws<ArgumentException>(() => topology.ForSubscription(" ", null));
+        Assert.Throws<ArgumentException>(() => topology.ForSubscription("orders", " "));
+        Assert.Throws<ArgumentException>(() => topology.RoutingKey(" "));
+    }
+
+    [Fact]
     public void Consumer_group_uses_stable_durable_queue()
     {
         var topology = CreateTopology().ForSubscription("orders.created", "billing");
@@ -38,6 +55,19 @@ public sealed class RabbitMqTopologyTests
             () => CreateTopology().ForSubscription(channel, "billing"));
 
         Assert.Contains("255 UTF-8 bytes", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Dead_letter_name_is_validated_when_read()
+    {
+        var topology = new RabbitMqTopology(new RabbitMqProtocolOptions
+        {
+            ConnectionUri = new Uri("amqp://guest:guest@localhost:5672/"),
+            ExchangeName = new string('a', 250),
+            DeadLetterSuffix = ".dead-letter"
+        });
+
+        Assert.Throws<ArgumentException>(() => _ = topology.DeadLetterExchange);
     }
 
     private static RabbitMqTopology CreateTopology()

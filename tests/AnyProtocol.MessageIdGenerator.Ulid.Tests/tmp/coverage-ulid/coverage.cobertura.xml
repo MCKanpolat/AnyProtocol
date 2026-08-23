@@ -1,0 +1,688 @@
+<?xml version="1.0" encoding="utf-8"?>
+<coverage line-rate="0.019799999999999998" branch-rate="0" version="1.9" timestamp="1787510747" lines-covered="2" lines-valid="101" branches-covered="0" branches-valid="32">
+  <sources>
+    <source>C:/Users/Mehmet/Documents/GitHub/AnyProtocol/src/</source>
+  </sources>
+  <packages>
+    <package name="AnyProtocol.Abstraction" line-rate="0" branch-rate="0" complexity="89">
+      <classes>
+        <class name="AnyProtocol.Abstraction.AnyProtocolFaultException" filename="AnyProtocol.Abstraction/AnyProtocolFaultException.cs" line-rate="0" branch-rate="1" complexity="2">
+          <methods>
+            <method name="get_Fault" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="22" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(AnyProtocol.Abstraction.FaultMessage)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="13" hits="0" branch="False" />
+                <line number="15" hits="0" branch="False" />
+                <line number="16" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="22" hits="0" branch="False" />
+            <line number="13" hits="0" branch="False" />
+            <line number="15" hits="0" branch="False" />
+            <line number="16" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.AnyProtocolValidationException" filename="AnyProtocol.Abstraction/AnyProtocolFaultException.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name=".ctor" signature="(AnyProtocol.Abstraction.FaultMessage)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="35" hits="0" branch="False" />
+                <line number="37" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="35" hits="0" branch="False" />
+            <line number="37" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.ChannelAttribute" filename="AnyProtocol.Abstraction/ContractAttributes.cs" line-rate="0" branch-rate="1" complexity="2">
+          <methods>
+            <method name="get_Name" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="14" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(System.String)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="8" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="14" hits="0" branch="False" />
+            <line number="8" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.RequirePermissionAttribute" filename="AnyProtocol.Abstraction/ContractAttributes.cs" line-rate="0" branch-rate="1" complexity="2">
+          <methods>
+            <method name="get_Permission" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="40" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(System.String)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="34" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="40" hits="0" branch="False" />
+            <line number="34" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.FaultContractAttribute" filename="AnyProtocol.Abstraction/ContractAttributes.cs" line-rate="0" branch-rate="1" complexity="2">
+          <methods>
+            <method name="get_FaultType" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="54" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(System.Type)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="48" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="54" hits="0" branch="False" />
+            <line number="48" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.McpToolAttribute" filename="AnyProtocol.Abstraction/ContractAttributes.cs" line-rate="0" branch-rate="1" complexity="6">
+          <methods>
+            <method name="get_Name" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="73" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Description" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="79" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_ReadOnly" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="85" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Destructive" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="91" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Idempotent" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="97" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_OpenWorld" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="103" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="73" hits="0" branch="False" />
+            <line number="79" hits="0" branch="False" />
+            <line number="85" hits="0" branch="False" />
+            <line number="91" hits="0" branch="False" />
+            <line number="97" hits="0" branch="False" />
+            <line number="103" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.ContractMethodDescriptor" filename="AnyProtocol.Abstraction/ContractMethodDescriptor.cs" line-rate="0" branch-rate="1" complexity="14">
+          <methods>
+            <method name="get_ContractType" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="14" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Method" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="20" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_ContractName" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="26" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_MethodName" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="32" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Channel" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="38" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_RequestType" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="44" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_ResponseType" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="50" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Operation" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="56" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_HasCancellationToken" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="62" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_ExpectReply" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="68" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_IsIdempotent" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="74" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_RequiredPermissions" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="80" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_FaultType" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="86" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_PartitionKeyProperty" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="92" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="14" hits="0" branch="False" />
+            <line number="20" hits="0" branch="False" />
+            <line number="26" hits="0" branch="False" />
+            <line number="32" hits="0" branch="False" />
+            <line number="38" hits="0" branch="False" />
+            <line number="44" hits="0" branch="False" />
+            <line number="50" hits="0" branch="False" />
+            <line number="56" hits="0" branch="False" />
+            <line number="62" hits="0" branch="False" />
+            <line number="68" hits="0" branch="False" />
+            <line number="74" hits="0" branch="False" />
+            <line number="80" hits="0" branch="False" />
+            <line number="86" hits="0" branch="False" />
+            <line number="92" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.ContractShapeException" filename="AnyProtocol.Abstraction/ContractShapeException.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name=".ctor" signature="(System.String)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="13" hits="0" branch="False" />
+                <line number="15" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="13" hits="0" branch="False" />
+            <line number="15" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.ErrorContext" filename="AnyProtocol.Abstraction/ErrorContext.cs" line-rate="0" branch-rate="0" complexity="6">
+          <methods>
+            <method name="get_Message" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="11" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Exception" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="14" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(AnyProtocol.Abstraction.IMessageContext,System.Exception)" line-rate="0" branch-rate="0" complexity="4">
+              <lines>
+                <line number="8" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="11" hits="0" branch="False" />
+            <line number="14" hits="0" branch="False" />
+            <line number="8" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.FaultDetail" filename="AnyProtocol.Abstraction/FaultMessage.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name="get_Key" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="8" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="8" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.FaultMessage" filename="AnyProtocol.Abstraction/FaultMessage.cs" line-rate="0" branch-rate="1" complexity="6">
+          <methods>
+            <method name="get_Code" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="19" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Message" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="20" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_ExceptionType" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="21" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Retryable" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="22" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Details" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="23" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(System.String,System.String,System.String,System.Boolean,System.Collections.Generic.IReadOnlyList`1&lt;AnyProtocol.Abstraction.FaultDetail&gt;)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="18" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="19" hits="0" branch="False" />
+            <line number="20" hits="0" branch="False" />
+            <line number="21" hits="0" branch="False" />
+            <line number="22" hits="0" branch="False" />
+            <line number="23" hits="0" branch="False" />
+            <line number="18" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.IAnyProtocolBus" filename="AnyProtocol.Abstraction/IAnyProtocolBus.cs" line-rate="0" branch-rate="0" complexity="2">
+          <methods>
+            <method name="get_State" signature="()" line-rate="0" branch-rate="0" complexity="2">
+              <lines>
+                <line number="19" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="6" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="19" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="6" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.MessageHeadersExtensions" filename="AnyProtocol.Abstraction/MessageHeadersExtensions.cs" line-rate="0" branch-rate="0" complexity="18">
+          <methods>
+            <method name="TryGet" signature="(AnyProtocol.Abstraction.IMessageHeaders,System.String,T&amp;)" line-rate="0" branch-rate="0" complexity="8">
+              <lines>
+                <line number="20" hits="0" branch="False" />
+                <line number="22" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="20" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="24" hits="0" branch="False" />
+                <line number="25" hits="0" branch="False" />
+                <line number="30" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="47" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="32" hits="0" branch="False" />
+                <line number="34" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="107" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="36" hits="0" branch="False" />
+                <line number="38" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="158" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="40" hits="0" branch="False" />
+                <line number="44" hits="0" branch="False" />
+                <line number="47" hits="0" branch="False" />
+                <line number="49" hits="0" branch="False" />
+                <line number="51" hits="0" branch="False" />
+                <line number="52" hits="0" branch="False" />
+                <line number="54" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="Get" signature="(AnyProtocol.Abstraction.IMessageHeaders,System.String,T)" line-rate="0" branch-rate="0" complexity="2">
+              <lines>
+                <line number="65" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="9" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+            <method name="Set" signature="(AnyProtocol.Abstraction.IMessageHeaders,System.String,T)" line-rate="0" branch-rate="0" complexity="8">
+              <lines>
+                <line number="77" hits="0" branch="True" condition-coverage="0% (0/6)">
+                  <conditions>
+                    <condition number="11" type="jump" coverage="0%" />
+                    <condition number="43" type="jump" coverage="0%" />
+                    <condition number="77" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="78" hits="0" branch="False" />
+                <line number="79" hits="0" branch="False" />
+                <line number="80" hits="0" branch="False" />
+                <line number="81" hits="0" branch="False" />
+                <line number="82" hits="0" branch="False" />
+                <line number="83" hits="0" branch="False" />
+                <line number="85" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="161" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="86" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="20" hits="0" branch="False" />
+            <line number="22" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="20" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="24" hits="0" branch="False" />
+            <line number="25" hits="0" branch="False" />
+            <line number="30" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="47" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="32" hits="0" branch="False" />
+            <line number="34" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="107" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="36" hits="0" branch="False" />
+            <line number="38" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="158" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="40" hits="0" branch="False" />
+            <line number="44" hits="0" branch="False" />
+            <line number="47" hits="0" branch="False" />
+            <line number="49" hits="0" branch="False" />
+            <line number="51" hits="0" branch="False" />
+            <line number="52" hits="0" branch="False" />
+            <line number="54" hits="0" branch="False" />
+            <line number="65" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="9" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="77" hits="0" branch="True" condition-coverage="0% (0/6)">
+              <conditions>
+                <condition number="11" type="jump" coverage="0%" />
+                <condition number="43" type="jump" coverage="0%" />
+                <condition number="77" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="78" hits="0" branch="False" />
+            <line number="79" hits="0" branch="False" />
+            <line number="80" hits="0" branch="False" />
+            <line number="81" hits="0" branch="False" />
+            <line number="82" hits="0" branch="False" />
+            <line number="83" hits="0" branch="False" />
+            <line number="85" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="161" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="86" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.MessageSchema" filename="AnyProtocol.Abstraction/SchemaRegistry.cs" line-rate="0" branch-rate="1" complexity="7">
+          <methods>
+            <method name="get_Subject" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="24" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Version" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="25" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Format" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="26" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Definition" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="27" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Fingerprint" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="28" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_RegisteredAt" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="29" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(System.String,System.Int32,System.String,System.String,System.String,System.DateTimeOffset)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="23" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="24" hits="0" branch="False" />
+            <line number="25" hits="0" branch="False" />
+            <line number="26" hits="0" branch="False" />
+            <line number="27" hits="0" branch="False" />
+            <line number="28" hits="0" branch="False" />
+            <line number="29" hits="0" branch="False" />
+            <line number="23" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.SchemaCompatibilityResult" filename="AnyProtocol.Abstraction/SchemaRegistry.cs" line-rate="0" branch-rate="1" complexity="4">
+          <methods>
+            <method name="get_IsCompatible" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="35" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Errors" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="36" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_Compatible" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="39" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".ctor" signature="(System.Boolean,System.Collections.Generic.IReadOnlyList`1&lt;System.String&gt;)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="34" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="35" hits="0" branch="False" />
+            <line number="36" hits="0" branch="False" />
+            <line number="39" hits="0" branch="False" />
+            <line number="34" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.SchemaCompatibilityException" filename="AnyProtocol.Abstraction/SchemaRegistry.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name=".ctor" signature="(System.String)" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="91" hits="0" branch="False" />
+                <line number="93" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="91" hits="0" branch="False" />
+            <line number="93" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.ShutdownOptions" filename="AnyProtocol.Abstraction/ShutdownOptions.cs" line-rate="0" branch-rate="0" complexity="11">
+          <methods>
+            <method name="get_DrainTimeout" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="21" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="get_ForcedCancellationTimeout" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="26" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name="Validate" signature="()" line-rate="0" branch-rate="0" complexity="8">
+              <lines>
+                <line number="33" hits="0" branch="True" condition-coverage="0% (0/4)">
+                  <conditions>
+                    <condition number="16" type="jump" coverage="0%" />
+                    <condition number="34" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="35" hits="0" branch="False" />
+                <line number="38" hits="0" branch="True" condition-coverage="0% (0/4)">
+                  <conditions>
+                    <condition number="68" type="jump" coverage="0%" />
+                    <condition number="86" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="39" hits="0" branch="False" />
+                <line number="41" hits="0" branch="False" />
+                <line number="42" hits="0" branch="False" />
+                <line number="43" hits="0" branch="False" />
+                <line number="45" hits="0" branch="False" />
+              </lines>
+            </method>
+            <method name=".cctor" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="11" hits="0" branch="False" />
+                <line number="16" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="21" hits="0" branch="False" />
+            <line number="26" hits="0" branch="False" />
+            <line number="33" hits="0" branch="True" condition-coverage="0% (0/4)">
+              <conditions>
+                <condition number="16" type="jump" coverage="0%" />
+                <condition number="34" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="35" hits="0" branch="False" />
+            <line number="38" hits="0" branch="True" condition-coverage="0% (0/4)">
+              <conditions>
+                <condition number="68" type="jump" coverage="0%" />
+                <condition number="86" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="39" hits="0" branch="False" />
+            <line number="41" hits="0" branch="False" />
+            <line number="42" hits="0" branch="False" />
+            <line number="43" hits="0" branch="False" />
+            <line number="45" hits="0" branch="False" />
+            <line number="11" hits="0" branch="False" />
+            <line number="16" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.TransportEnvelope" filename="AnyProtocol.Abstraction/TransportEnvelope.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name="get_Headers" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="8" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="8" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.Unit" filename="AnyProtocol.Abstraction/Unit.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name="get_Value" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="12" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="12" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="AnyProtocol.Abstraction.EmptyRequest" filename="AnyProtocol.Abstraction/Unit.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name="get_Instance" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="24" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="24" hits="0" branch="False" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+    <package name="AnyProtocol.MessageIdGenerator.Ulid" line-rate="1" branch-rate="1" complexity="1">
+      <classes>
+        <class name="AnyProtocol.MessageIdGenerator.Ulid.UlidMessageIdGenerator" filename="AnyProtocol.MessageIdGenerator.Ulid/UlidMessageIdGenerator.cs" line-rate="1" branch-rate="1" complexity="1">
+          <methods>
+            <method name="Generate" signature="()" line-rate="1" branch-rate="1" complexity="1">
+              <lines>
+                <line number="16" hits="257" branch="False" />
+                <line number="17" hits="257" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="16" hits="257" branch="False" />
+            <line number="17" hits="257" branch="False" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

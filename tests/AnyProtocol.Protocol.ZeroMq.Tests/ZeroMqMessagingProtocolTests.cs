@@ -13,6 +13,139 @@ namespace AnyProtocol.Protocol.ZeroMq.Tests;
 public sealed class ZeroMqMessagingProtocolTests
 {
     [Fact]
+    public void Protocol_options_validate_endpoints_watermarks_and_poll_interval()
+    {
+        var endpoints = CreateEndpoints();
+
+        Assert.Throws<ArgumentNullException>(
+            () => new ZeroMqMessagingProtocol(
+                new ZeroMqProtocolOptions
+                {
+                    Role = ZeroMqRole.Server,
+                    RouterEndpoint = null!,
+                    PublisherEndpoint = endpoints.Publisher
+                }));
+        Assert.Throws<ArgumentException>(
+            () => new ZeroMqMessagingProtocol(
+                new ZeroMqProtocolOptions
+                {
+                    Role = ZeroMqRole.Server,
+                    RouterEndpoint = endpoints.Router,
+                    PublisherEndpoint = " "
+                }));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ZeroMqMessagingProtocol(
+                new ZeroMqProtocolOptions
+                {
+                    Role = ZeroMqRole.Server,
+                    RouterEndpoint = endpoints.Router,
+                    PublisherEndpoint = endpoints.Publisher,
+                    HighWatermark = 0
+                }));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ZeroMqMessagingProtocol(
+                new ZeroMqProtocolOptions
+                {
+                    Role = ZeroMqRole.Server,
+                    RouterEndpoint = endpoints.Router,
+                    PublisherEndpoint = endpoints.Publisher,
+                    PollInterval = TimeSpan.FromMilliseconds(-1)
+                }));
+    }
+
+    [Fact]
+    public void Subscription_queue_capacity_must_be_positive()
+    {
+        var endpoints = CreateEndpoints();
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ZeroMqMessagingProtocol(
+                new ZeroMqProtocolOptions
+                {
+                    Role = ZeroMqRole.Server,
+                    RouterEndpoint = endpoints.Router,
+                    PublisherEndpoint = endpoints.Publisher,
+                    SubscriptionQueueCapacity = 0
+                }));
+
+        Assert.Equal("SubscriptionQueueCapacity", exception.ParamName);
+    }
+
+    [Fact]
+    public async Task Validation_readiness_and_disposal_paths_are_deterministic()
+    {
+        var endpoints = CreateEndpoints();
+        await using var server = CreateServer(endpoints);
+        var envelope = new TransportEnvelope(new MessageHeaders(), new byte[] { 1 });
+        var handler = static (TransportEnvelope _, CancellationToken __) => ValueTask.CompletedTask;
+
+        Assert.Equal(
+            TransportReadinessState.Ready,
+            (await server.CheckReadinessAsync()).State);
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => server.SendAsync(" ", envelope).AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => server.SendAsync("orders", null!).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => server.SubscribeAsync(" ", handler).AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => server.SubscribeAsync("orders", null!).AsTask());
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => server.SubscribeAsync(
+                "orders",
+                handler,
+                new SubscriptionOptions { MaxConcurrency = 0 }).AsTask());
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => server.SubscribeAsync("orders", handler, cancellationToken: cancellation.Token).AsTask());
+
+        await server.DisposeAsync();
+        await server.DisposeAsync();
+
+        Assert.Equal(
+            TransportReadinessState.NotReady,
+            (await server.CheckReadinessAsync()).State);
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            () => server.SendAsync("orders", envelope).AsTask());
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            () => server.SubscribeAsync("orders", handler).AsTask());
+    }
+
+    [Fact]
+    public async Task Stop_accepting_unblocks_a_receive_loop_waiting_on_a_full_subscription_queue()
+    {
+        var endpoints = CreateEndpoints();
+        await using var server = CreateServer(
+            endpoints,
+            subscriptionQueueCapacity: 1);
+        await using var client = CreateClient(endpoints);
+        var handlerStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var subscription = await server.SubscribeAsync(
+            "events.backpressure",
+            async (_, cancellationToken) =>
+            {
+                handlerStarted.TrySetResult();
+                await releaseHandler.Task.WaitAsync(cancellationToken);
+            });
+
+        await Task.Delay(250);
+        for (var index = 0; index < 3; index++)
+        {
+            await client.SendAsync(
+                "events.backpressure",
+                new TransportEnvelope(new MessageHeaders(), new byte[] { (byte)index }));
+        }
+
+        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(100);
+        await subscription.StopAcceptingAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        releaseHandler.TrySetResult();
+    }
+    [Fact]
     public async Task Client_to_server_preserves_headers_and_body()
     {
         var (server, client) = CreatePair();
@@ -251,15 +384,20 @@ public sealed class ZeroMqMessagingProtocolTests
                 CompressionThreshold = 0
             });
 
-    private static ZeroMqMessagingProtocol CreateServer(Endpoints endpoints, IEnvelopeCodec? codec = null)
-        => new(
-            new ZeroMqProtocolOptions
-            {
-                Role = ZeroMqRole.Server,
-                RouterEndpoint = endpoints.Router,
-                PublisherEndpoint = endpoints.Publisher
-            },
-            codec ?? new BinaryEnvelopeCodec());
+    private static ZeroMqMessagingProtocol CreateServer(
+        Endpoints endpoints,
+        IEnvelopeCodec? codec = null,
+        int? subscriptionQueueCapacity = null)
+    {
+        var options = new ZeroMqProtocolOptions
+        {
+            Role = ZeroMqRole.Server,
+            RouterEndpoint = endpoints.Router,
+            PublisherEndpoint = endpoints.Publisher,
+            SubscriptionQueueCapacity = subscriptionQueueCapacity ?? 1000
+        };
+        return new ZeroMqMessagingProtocol(options, codec ?? new BinaryEnvelopeCodec());
+    }
 
     private static ZeroMqMessagingProtocol CreateClient(Endpoints endpoints, IEnvelopeCodec? codec = null)
         => new(

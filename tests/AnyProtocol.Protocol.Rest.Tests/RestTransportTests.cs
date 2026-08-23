@@ -173,6 +173,30 @@ public sealed class RestTransportTests
         Assert.Equal("PROPFIND", attribute.Method);
     }
 
+    [Theory]
+    [InlineData("PlaceOrderAsync", "place-order")]
+    [InlineData("URLValueAsync", "url-value")]
+    [InlineData("already--separated", "already-separated")]
+    public void Default_operation_route_segments_are_stable(string methodName, string expected)
+    {
+        var method = typeof(RestEndpointOptions).GetMethod(
+            "GetOperationRouteSegment",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        Assert.Equal(expected, method!.Invoke(null, [methodName]));
+    }
+
+    [Fact]
+    public void Rest_configuration_rejects_an_empty_documentation_content_type()
+    {
+        var services = new ServiceCollection();
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => services.AddAnyProtocolRest(options => options.DocumentationContentType = " "));
+
+        Assert.Contains("content type", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void Public_api_retains_legacy_request_and_constructor_signatures()
     {
@@ -431,6 +455,133 @@ public sealed class RestTransportTests
         Assert.Equal("validation_failed", validation.Fault.Code);
         Assert.Single(validation.Fault.Details!);
         Assert.Equal("handler_failed", handlerFault.Fault.Code);
+        Assert.Equal("An unexpected error occurred while processing the request.", handlerFault.Fault.Message);
+        Assert.Null(handlerFault.Fault.ExceptionType);
+        Assert.DoesNotContain("broken", handlerFault.Fault.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Request_body_larger_than_configured_limit_is_rejected_with_a_stable_fault()
+    {
+        await using var host = await CreateHostAsync(
+            options =>
+            {
+                options.MaxRequestBodyBytes = 4;
+                options.MapOperationEndpoints = true;
+            });
+        using var content = new ByteArrayContent("12345"u8.ToArray());
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            "application/json");
+
+        using var response = await host.GetTestClient().PostAsync(
+            "/anyprotocol/rest-api/orders/place-order",
+            content);
+        var problem = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(System.Net.HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Contains("request_body_too_large", problem, StringComparison.Ordinal);
+        Assert.DoesNotContain("exceptionType", problem, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Chunked_request_body_larger_than_configured_limit_is_rejected_while_streaming()
+    {
+        await using var host = await CreateHostAsync(
+            options =>
+            {
+                options.MaxRequestBodyBytes = 4;
+                options.MapOperationEndpoints = true;
+            });
+        await using var stream = new NonSeekableReadStream("12345"u8.ToArray());
+        using var content = new StreamContent(stream);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            "application/json");
+
+        Assert.Null(content.Headers.ContentLength);
+        using var response = await host.GetTestClient().PostAsync(
+            "/anyprotocol/rest-api/orders/place-order",
+            content);
+
+        Assert.Equal(System.Net.HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Contains(
+            "request_body_too_large",
+            await response.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Request_body_exactly_at_configured_limit_is_accepted()
+    {
+        const string json = "{\"orderId\":\"x\"}";
+        await using var host = await CreateHostAsync(
+            options =>
+            {
+                options.MaxRequestBodyBytes = json.Length;
+                options.MapOperationEndpoints = true;
+            });
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        using var response = await host.GetTestClient().PostAsync(
+            "/anyprotocol/rest-api/orders/place-order",
+            content);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Chunked_request_body_exactly_at_the_limit_is_accepted()
+    {
+        var json = $"{{\"orderId\":\"{new string('x', 4082)}\"}}";
+        Assert.Equal(4096, System.Text.Encoding.UTF8.GetByteCount(json));
+        await using var host = await CreateHostAsync(
+            options =>
+            {
+                options.MaxRequestBodyBytes = 4096;
+                options.MapOperationEndpoints = true;
+            });
+        await using var stream = new NonSeekableReadStream(System.Text.Encoding.UTF8.GetBytes(json));
+        using var content = new StreamContent(stream);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            "application/json");
+
+        using var response = await host.GetTestClient().PostAsync(
+            "/anyprotocol/rest-api/orders/place-order",
+            content);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Chunked_request_body_grows_the_pooled_buffer_without_an_extra_full_copy()
+    {
+        var json = $"{{\"orderId\":\"{new string('x', 4500)}\"}}";
+        await using var host = await CreateHostAsync(
+            options =>
+            {
+                options.MaxRequestBodyBytes = 5000;
+                options.MapOperationEndpoints = true;
+            });
+        await using var stream = new NonSeekableReadStream(System.Text.Encoding.UTF8.GetBytes(json));
+        using var content = new StreamContent(stream);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            "application/json");
+
+        using var response = await host.GetTestClient().PostAsync(
+            "/anyprotocol/rest-api/orders/place-order",
+            content);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public void Rest_configuration_rejects_a_negative_request_body_limit()
+    {
+        var services = new ServiceCollection();
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => services.AddAnyProtocolRest(options => options.MaxRequestBodyBytes = -1));
+
+        Assert.Contains("request-body limit", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -507,5 +658,57 @@ public sealed class RestTransportTests
                     .UseTransport("rest")
                     .WithTimeout(timeout ?? TimeSpan.FromSeconds(5))));
         return services.BuildServiceProvider();
+    }
+
+    private sealed class NonSeekableReadStream : Stream
+    {
+        private readonly MemoryStream _inner;
+
+        public NonSeekableReadStream(byte[] bytes) => _inner = new MemoryStream(bytes);
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+
+        public override int Read(Span<byte> buffer) => _inner.Read(buffer);
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+            => _inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 }

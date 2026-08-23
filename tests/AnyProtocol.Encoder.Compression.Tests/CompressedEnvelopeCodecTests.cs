@@ -170,6 +170,48 @@ public sealed class CompressedEnvelopeCodecTests
         Assert.Throws<InvalidDataException>(() => codec.Decode(invalidPayloadLength));
     }
 
+    [Fact]
+    public void Decode_rejects_a_complete_frame_above_the_frame_limit()
+    {
+        var encoded = new CompressedEnvelopeCodec(
+                new FakeEnvelopeCodec(),
+                new CompressedEnvelopeCodecOptions { CompressionThreshold = int.MaxValue })
+            .Encode(CreateEnvelope([1, 2, 3, 4]));
+        var codec = new CompressedEnvelopeCodec(
+            new FakeEnvelopeCodec(),
+            new CompressedEnvelopeCodecOptions
+            {
+                Limits = new EnvelopeCodecLimits
+                {
+                    MaxFrameSize = encoded.Length - 1,
+                    MaxBodySize = 4,
+                    MaxDecompressedSize = 32
+                }
+            });
+
+        Assert.Throws<InvalidDataException>(() => codec.Decode(encoded));
+    }
+
+    [Fact]
+    public void Gzip_rejects_a_declared_decompressed_length_mismatch()
+    {
+        var codec = new CompressedEnvelopeCodec(
+            new FakeEnvelopeCodec(),
+            new CompressedEnvelopeCodecOptions
+            {
+                CompressionThreshold = 0,
+                MaximumCompressionRatio = 100_000
+            });
+        var encoded = codec.Encode(
+                CreateEnvelope(Enumerable.Repeat((byte)7, 8192).ToArray()))
+            .ToArray();
+        BinaryPrimitives.WriteUInt64LittleEndian(
+            encoded.AsSpan(OriginalLengthOffset),
+            ReadUInt64(encoded, OriginalLengthOffset) + 1);
+
+        Assert.Throws<InvalidDataException>(() => codec.Decode(encoded));
+    }
+
     [Theory]
     [InlineData(CompressionAlgorithm.GZip)]
     [InlineData(CompressionAlgorithm.Brotli)]
@@ -281,6 +323,25 @@ public sealed class CompressedEnvelopeCodecTests
     }
 
     [Fact]
+    public void Encode_rejects_an_inner_frame_above_the_decompressed_size_limit()
+    {
+        var codec = new CompressedEnvelopeCodec(
+            new FakeEnvelopeCodec(),
+            new CompressedEnvelopeCodecOptions
+            {
+                Limits = new EnvelopeCodecLimits
+                {
+                    MaxFrameSize = 1024,
+                    MaxBodySize = 1024,
+                    MaxDecompressedSize = 8
+                }
+            });
+
+        Assert.Throws<InvalidDataException>(
+            () => codec.Encode(CreateEnvelope(new byte[32])));
+    }
+
+    [Fact]
     public void Double_compression_is_rejected_unless_explicitly_enabled()
     {
         var firstLayer = new CompressedEnvelopeCodec(
@@ -306,6 +367,7 @@ public sealed class CompressedEnvelopeCodecTests
     [Fact]
     public void Invalid_options_are_rejected_at_construction()
     {
+        Assert.Throws<ArgumentNullException>(() => new CompressedEnvelopeCodec(null!));
         Assert.Throws<ArgumentOutOfRangeException>(() => new CompressedEnvelopeCodec(
             new FakeEnvelopeCodec(),
             new CompressedEnvelopeCodecOptions { Algorithm = (CompressionAlgorithm)0 }));
@@ -317,10 +379,24 @@ public sealed class CompressedEnvelopeCodecTests
             new CompressedEnvelopeCodecOptions { MaximumCompressionRatio = 0.5 }));
         Assert.Throws<ArgumentOutOfRangeException>(() => new CompressedEnvelopeCodec(
             new FakeEnvelopeCodec(),
+            new CompressedEnvelopeCodecOptions { MaximumCompressionRatio = double.NaN }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CompressedEnvelopeCodec(
+            new FakeEnvelopeCodec(),
+            new CompressedEnvelopeCodecOptions { MaximumCompressionRatio = double.PositiveInfinity }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CompressedEnvelopeCodec(
+            new FakeEnvelopeCodec(),
             new CompressedEnvelopeCodecOptions
             {
                 Limits = new EnvelopeCodecLimits { MaxFrameSize = 0 }
             }));
+    }
+
+    [Fact]
+    public void Encode_rejects_a_null_envelope()
+    {
+        var codec = new CompressedEnvelopeCodec(new FakeEnvelopeCodec());
+
+        Assert.Throws<ArgumentNullException>(() => codec.Encode(null!));
     }
 
     private static TransportEnvelope CreateEnvelope(byte[] body)

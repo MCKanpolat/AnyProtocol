@@ -13,10 +13,15 @@ dotnet add package AnyProtocol.Mcp.AspNetCore
 ```csharp
 builder.Services.AddAnyProtocol(link => link
     .UseSerializer(new TextJsonMessageSerializer())
-    .AddServer<IOrders, Orders>(server => server.UseProtocols(ProtocolKey.Mcp)));
+        .AddServer<IOrders, Orders>(server => server.UseProtocols(ProtocolKey.Mcp)));
 builder.Services.AddAnyProtocolMcp();
+// Configure a real application scheme; this example uses JWT bearer authentication.
+builder.Services.AddAuthentication().AddJwtBearer();
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapAnyProtocolMcp("/mcp");
 await app.RunAsync();
 ```
@@ -59,6 +64,9 @@ For process integrations, use `AddAnyProtocolMcpStdio()` instead of the HTTP reg
   non-object output values are wrapped as an object result.
 - `ReadOnly`, `Destructive`, `Idempotent`, and `OpenWorld` are client-facing metadata hints.
   Authorization, validation, and side-effect controls remain host responsibilities.
-- Apply authorization and input validation to tools like any other public endpoint.
+- HTTP MCP endpoints require ASP.NET Core authorization by default. Configure authentication,
+  register the required policy, and call `UseAuthorization()` before serving requests.
+- `MapAnyProtocolMcpAllowAnonymousForDevelopment()` is an explicitly named local-development
+  opt-out; never use it for an internet-facing endpoint. Stdio has a separate process boundary.
 
 See [Security](SECURITY.md) and [Getting started](GETTING_STARTED.md) for endpoint and contract setup.

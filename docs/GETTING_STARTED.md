@@ -17,12 +17,22 @@ builder.Services.AddAnyProtocol(link => link
 builder.Services.AddAnyProtocolRest();
 builder.Services.AddAnyProtocolGrpc();
 builder.Services.AddAnyProtocolMcp();
+// Configure a real application scheme; this example uses JWT bearer authentication.
+builder.Services.AddAuthentication().AddJwtBearer();
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapAnyProtocol();
 app.MapAnyProtocolGrpc();
 app.MapAnyProtocolMcp();
 ```
+
+The HTTP MCP endpoint requires an authenticated caller by default. Add the appropriate
+authentication package and replace the example scheme/configuration with your production
+identity provider. `MapAnyProtocolMcpAllowAnonymousForDevelopment()` is available only for
+explicit local-development use.
 
 Each client selects exactly one registered protocol:
 

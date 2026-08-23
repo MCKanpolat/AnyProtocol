@@ -10,7 +10,7 @@ public abstract class TransportConformanceTests
 
     protected virtual TimeSpan Timeout => TimeSpan.FromSeconds(2);
 
-    [Fact]
+    [SkippableFact]
     public async Task Capability_contract_matches_declared_semantics()
     {
         await using var transport = CreateTransport();
@@ -22,7 +22,7 @@ public abstract class TransportConformanceTests
             transport.Semantics.SupportsCompetingConsumers);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Pre_cancelled_send_does_not_reach_a_subscriber()
     {
         await using var transport = CreateTransport();
@@ -50,7 +50,7 @@ public abstract class TransportConformanceTests
         Assert.Equal(0, Volatile.Read(ref received));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Readiness_probe_is_non_destructive_when_supported()
     {
         await using var transport = CreateTransport();
@@ -64,7 +64,7 @@ public abstract class TransportConformanceTests
         Assert.NotEqual(TransportReadinessState.NotReady, result.State);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Send_and_subscribe_preserve_body_and_headers()
     {
         await using var transport = CreateTransport();
@@ -95,7 +95,7 @@ public abstract class TransportConformanceTests
         Assert.Equal(new byte[] { 1, 2, 3 }, envelope.Body.ToArray());
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Publish_subscribe_fans_out_to_independent_subscribers()
     {
         await using var transport = CreateTransport();
@@ -125,7 +125,7 @@ public abstract class TransportConformanceTests
         await Task.WhenAll(first.Task, second.Task).WaitAsync(Timeout);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Consumer_group_delivers_each_message_once()
     {
         await using var transport = CreateTransport();

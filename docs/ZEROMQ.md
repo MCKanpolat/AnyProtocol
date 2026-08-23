@@ -41,11 +41,15 @@ link.AddClient<IOrders>(client => client.UseProtocol(ProtocolKey.ZeroMq));
 | `PublisherEndpoint` | Required |
 | `ClientIdentity` | Random Guid when omitted |
 | `HighWatermark` | `1,000` |
+| `SubscriptionQueueCapacity` | `1,000` |
 | `PollInterval` | 2 milliseconds |
 
 - At-most-once delivery, volatile storage, and per-channel ordering.
 - Publish/subscribe and competing consumer groups are supported.
 - Request/reply and streaming are AnyProtocol emulations.
 - There is no broker persistence, delivery acknowledgement, built-in reconnect state store, or non-destructive client readiness probe.
+- Local subscription queues are bounded and apply backpressure to socket processing rather than
+  silently dropping messages. Size `SubscriptionQueueCapacity` with handler latency and payload
+  size in mind; ZeroMQ remains an at-most-once transport.
 
 See [Deployment](DEPLOYMENT.md) for endpoint and scaling guidance.

@@ -9,6 +9,16 @@ namespace AnyProtocol.Protocol.Rest.AspNetCore;
 public sealed class RestEndpointOptions
 {
     /// <summary>
+    /// Gets or sets the maximum number of request-body bytes accepted by an endpoint.
+    /// </summary>
+    /// <value>The limit in bytes. The default is 10 MiB.</value>
+    /// <remarks>
+    /// Configure matching limits in Kestrel, IIS, reverse proxies, and ingress so the
+    /// earliest component rejects oversized requests.
+    /// </remarks>
+    public long MaxRequestBodyBytes { get; set; } = 10 * 1024 * 1024;
+
+    /// <summary>
     /// Gets or sets a value indicating whether operation-specific routes are mapped.
     /// </summary>
     /// <value>true to map operation-specific routes; otherwise, false.</value>

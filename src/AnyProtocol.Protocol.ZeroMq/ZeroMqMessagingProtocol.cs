@@ -151,7 +151,8 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             options.MaxConcurrency,
             handler,
             RemoveSubscription,
-            _logger);
+            _logger,
+            _options.SubscriptionQueueCapacity);
         set.Add(subscription);
         return ValueTask.FromResult<ITransportSubscription>(subscription);
     }
@@ -458,12 +459,15 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
     {
         private readonly Channel<TransportEnvelope> _queue;
         private readonly CancellationTokenSource _stopping = new();
+        private readonly CancellationTokenSource _queueWrites = new();
         private readonly Task[] _workers;
         private readonly Func<TransportEnvelope, CancellationToken, ValueTask> _handler;
         private readonly Action<Subscription> _remove;
         private readonly ILogWriter _logger;
         private readonly object _acceptingGate = new();
         private bool _accepting = true;
+        private int _pendingAdmissions;
+        private TaskCompletionSource? _admissionsDrained;
         private int _disposed;
 
         public Subscription(
@@ -472,18 +476,20 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             int maxConcurrency,
             Func<TransportEnvelope, CancellationToken, ValueTask> handler,
             Action<Subscription> remove,
-            ILogWriter logger)
+            ILogWriter logger,
+            int queueCapacity)
         {
             Channel = channel;
             ConsumerGroup = consumerGroup;
             _handler = handler;
             _remove = remove;
             _logger = logger;
-            _queue = System.Threading.Channels.Channel.CreateUnbounded<TransportEnvelope>(
-                new UnboundedChannelOptions
+            _queue = System.Threading.Channels.Channel.CreateBounded<TransportEnvelope>(
+                new BoundedChannelOptions(queueCapacity)
                 {
                     SingleReader = maxConcurrency == 1,
                     SingleWriter = true,
+                    FullMode = BoundedChannelFullMode.Wait,
                     AllowSynchronousContinuations = false
                 });
             _workers = Enumerable.Range(0, maxConcurrency)
@@ -503,29 +509,51 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
                 {
                     return;
                 }
+            }
 
-                if (!_queue.Writer.TryWrite(envelope))
-                {
-                    _ = _queue.Writer.WriteAsync(envelope, cancellationToken);
-                }
+            if (_queue.Writer.TryWrite(envelope))
+            {
+                return;
+            }
+
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _queueWrites.Token);
+            try
+            {
+                _queue.Writer.WriteAsync(envelope, linkedCancellation.Token).AsTask().GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException) when (_queueWrites.IsCancellationRequested)
+            {
             }
         }
 
-        public ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
+        public async ValueTask StopAcceptingAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Task? pendingAdmissions = null;
             lock (_acceptingGate)
             {
                 if (!_accepting)
                 {
-                    return ValueTask.CompletedTask;
+                    return;
                 }
 
                 _accepting = false;
+                if (_pendingAdmissions != 0)
+                {
+                    _admissionsDrained ??= new TaskCompletionSource(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    pendingAdmissions = _admissionsDrained.Task;
+                }
             }
 
+            _queueWrites.Cancel();
             _remove(this);
-            return ValueTask.CompletedTask;
+            if (pendingAdmissions is not null)
+            {
+                await pendingAdmissions.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         public async ValueTask DisposeAsync()
@@ -548,6 +576,7 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             finally
             {
                 _stopping.Dispose();
+                _queueWrites.Dispose();
             }
         }
 
@@ -558,15 +587,19 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
             {
                 try
                 {
-                    ValueTask handling;
-                    lock (_acceptingGate)
+                    if (!TryReserveAdmission())
                     {
-                        if (!_accepting)
-                        {
-                            break;
-                        }
+                        break;
+                    }
 
+                    ValueTask handling;
+                    try
+                    {
                         handling = _handler(envelope, _stopping.Token);
+                    }
+                    finally
+                    {
+                        CompleteAdmission();
                     }
 
                     await handling.ConfigureAwait(false);
@@ -588,6 +621,32 @@ public sealed class ZeroMqMessagingProtocol : ISendTransport, ISubscriptionTrans
                         "A ZeroMQ subscription handler failed; exception type '{0}'.",
                         exception,
                         exception.GetType().FullName);
+                }
+            }
+        }
+
+        private bool TryReserveAdmission()
+        {
+            lock (_acceptingGate)
+            {
+                if (!_accepting)
+                {
+                    return false;
+                }
+
+                _pendingAdmissions++;
+                return true;
+            }
+        }
+
+        private void CompleteAdmission()
+        {
+            lock (_acceptingGate)
+            {
+                _pendingAdmissions--;
+                if (!_accepting && _pendingAdmissions == 0)
+                {
+                    _admissionsDrained?.TrySetResult();
                 }
             }
         }

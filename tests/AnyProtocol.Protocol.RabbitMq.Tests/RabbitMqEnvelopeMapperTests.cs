@@ -8,6 +8,19 @@ namespace AnyProtocol.Protocol.RabbitMq.Tests;
 public sealed class RabbitMqEnvelopeMapperTests
 {
     [Fact]
+    public void Invalid_inputs_are_rejected_before_mapping()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => RabbitMqEnvelopeMapper.ToProperties(null!, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => RabbitMqEnvelopeMapper.ToProperties(
+                new TransportEnvelope(new MessageHeaders(), ReadOnlyMemory<byte>.Empty),
+                0));
+        Assert.Throws<ArgumentNullException>(
+            () => RabbitMqEnvelopeMapper.FromDelivery(null!, ReadOnlyMemory<byte>.Empty));
+    }
+
+    [Fact]
     public void Known_and_custom_headers_round_trip_through_amqp_properties()
     {
         var sentAt = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
@@ -55,5 +68,45 @@ public sealed class RabbitMqEnvelopeMapperTests
         body[0] = 9;
 
         Assert.Equal(new byte[] { 1, 2, 3 }, envelope.Body.ToArray());
+    }
+
+    [Fact]
+    public void Header_value_variants_are_normalized_and_invalid_values_are_rejected()
+    {
+        var properties = new BasicProperties
+        {
+            Headers = new Dictionary<string, object?>
+            {
+                ["byte-array"] = Encoding.UTF8.GetBytes("bytes"),
+                ["memory"] = (ReadOnlyMemory<byte>)Encoding.UTF8.GetBytes("memory"),
+                ["text"] = "text",
+                ["number"] = 42,
+                ["null"] = null
+            }
+        };
+
+        var envelope = RabbitMqEnvelopeMapper.FromDelivery(properties, ReadOnlyMemory<byte>.Empty);
+
+        Assert.Equal("bytes", envelope.Headers["byte-array"]);
+        Assert.Equal("memory", envelope.Headers["memory"]);
+        Assert.Equal("text", envelope.Headers["text"]);
+        Assert.Equal("42", envelope.Headers["number"]);
+        Assert.Equal(string.Empty, envelope.Headers["null"]);
+
+        properties.Headers["unsupported"] = new object();
+        Assert.Throws<InvalidDataException>(
+            () => RabbitMqEnvelopeMapper.FromDelivery(properties, ReadOnlyMemory<byte>.Empty));
+    }
+
+    [Fact]
+    public void Invalid_sent_at_is_not_promoted_to_a_native_timestamp()
+    {
+        var properties = RabbitMqEnvelopeMapper.ToProperties(
+            new TransportEnvelope(
+                new MessageHeaders { [HeaderNames.SentAt] = "not-a-timestamp" },
+                ReadOnlyMemory<byte>.Empty),
+            1);
+
+        Assert.False(properties.IsTimestampPresent());
     }
 }

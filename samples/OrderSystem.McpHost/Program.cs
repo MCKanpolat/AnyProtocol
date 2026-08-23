@@ -44,7 +44,7 @@ app.MapGet("/", () => Results.Ok(new
 }));
 app.MapAnyProtocol("/api");
 app.MapAnyProtocolGrpc();
-app.MapAnyProtocolMcp("/mcp");
+app.MapAnyProtocolMcpAllowAnonymousForDevelopment("/mcp");
 app.MapHealthChecks(
     "/health/live",
     new HealthCheckOptions

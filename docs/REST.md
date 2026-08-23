@@ -156,5 +156,12 @@ Each contract channel becomes `{HTTP_METHOD} {routePrefix}/{channel}` according 
 - Events can be posted to the mapped server endpoint.
 - REST does not expose subscriptions or streaming contracts.
 - Channels cannot contain `{`, `}`, `?`, `#`, empty path segments, or whitespace-only segments.
+- Request bodies are limited to 10 MiB by default. Set `RestEndpointOptions.MaxRequestBodyBytes`
+  to the smallest practical value and match it in Kestrel, IIS, reverse proxies, ingress, and
+  load balancers. Both declared and chunked bodies are enforced; oversized requests receive
+  `413` with the stable `request_body_too_large` code.
+- Unexpected handler failures return a sanitized `handler_failed` problem with an `errorId`.
+  Use that identifier to correlate server-side logs; exception types, messages, and stack details
+  are not exposed to clients.
 
 See [Getting started](GETTING_STARTED.md) for the same contract wired over multiple protocols and [Transport semantics](TRANSPORT_SEMANTICS.md) for the capability matrix.

@@ -1,41 +1,31 @@
-name: Publish NuGet packages
+name: Release NuGet packages
 
 on:
   push:
     branches: [develop]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example 1.2.3. Leave empty to calculate it automatically.
+        required: false
+        type: string
 
 concurrency:
-  group: nuget-publish-${{ github.ref }}
+  group: nuget-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
-  publish:
+  version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.300
-
-      - name: Restore
-        run: dotnet restore AnyProtocol.slnx
-
-      - name: Build
-        run: dotnet build AnyProtocol.slnx --configuration Release --no-restore
-
       - name: Calculate semantic version
         id: versioning
         uses: MCKanpolat/auto-semver-action@v3
@@ -43,77 +33,111 @@ jobs:
           releaseType: patch
           incrementPerCommit: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Select release version
         id: release-version
         shell: bash
         env:
           ACTION_VERSION: ${{ steps.versioning.outputs.version }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if git tag --list 'v[0-9]*' | grep -q .; then
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="$INPUT_VERSION"
+          elif git tag --list 'v[0-9]*' | grep -q .; then
             version="$ACTION_VERSION"
           else
             version="1.0.0"
           fi
+          version="${version#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid semantic version: $version" >&2
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Publishing version $version"
 
-      - name: Pack library projects
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANYPROTOCOL_REQUIRE_BROKER_TESTS: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - run: dotnet restore AnyProtocol.slnx --locked-mode
+      - run: dotnet build AnyProtocol.slnx -c Release --no-restore
+      - run: dotnet test AnyProtocol.slnx -c Release --no-build
+      - run: dotnet list AnyProtocol.slnx package --vulnerable --include-transitive --no-restore
+
+  pack:
+    needs: [validate, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: dotnet restore AnyProtocol.slnx --locked-mode
+      - name: Pack and generate release evidence
         shell: bash
         env:
-          VERSION: ${{ steps.release-version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts/packages
+          mkdir -p artifacts/packages artifacts/reports
           while IFS= read -r -d '' project; do
-            dotnet pack "$project" \
-              --configuration Release \
-              --no-restore \
-              --output artifacts/packages \
-              -p:PackageVersion="$VERSION" \
-              -p:Version="$VERSION"
-          done < <(
-            find src -type f -name '*.csproj' \
-              ! -path 'src/AnyProtocol.Generator.CodeFixes/*' \
-              -print0 | sort -z
-          )
+            dotnet pack "$project" -c Release --no-restore --output artifacts/packages -p:PackageVersion="$VERSION" -p:Version="$VERSION"
+          done < <(find src -type f -name '*.csproj' ! -path 'src/AnyProtocol.Generator.CodeFixes/*' -print0 | sort -z)
+          find artifacts/packages -type f \( -name '*.nupkg' -o -name '*.snupkg' \) -print0 | sort -z | xargs -0 sha256sum > artifacts/checksums.sha256
+          dotnet list AnyProtocol.slnx package --include-transitive --format json --no-restore > artifacts/sbom.packages.json
+          git rev-parse HEAD > artifacts/source-commit.txt
+          dotnet --info > artifacts/reports/dotnet-info.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
+          if-no-files-found: error
+          retention-days: 90
 
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.release-version.outputs.version }}
-        run: |
-          gh release create "v$VERSION" artifacts/packages/*.nupkg \
-            --title "v$VERSION" \
-            --generate-notes
-
-      - name: Verify packages
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          packages=(artifacts/packages/*.nupkg)
-          if [ "${#packages[@]}" -eq 0 ]; then
-            echo "No NuGet packages were produced."
-            exit 1
-          fi
-
+  publish-nuget:
+    needs: pack
+    runs-on: ubuntu-latest
+    environment: nuget-production
+    permissions:
+      id-token: write
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
       - name: NuGet login (OIDC trusted publishing)
         id: nuget-login
         uses: NuGet/login@v1
         with:
           user: ${{ secrets.NUGET_USER }}
-
-      - name: Push packages to NuGet.org
+      - name: Push packages idempotently
+        shell: bash
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          packages=(artifacts/packages/*.nupkg)
-          for package in "${packages[@]}"; do
-            dotnet nuget push "$package" \
-              --api-key "$NUGET_API_KEY" \
-              --source https://api.nuget.org/v3/index.json \
-              --skip-duplicate
-          done
+          find artifacts/packages -name '*.nupkg' -print0 | sort -z | xargs -0 -n1 dotnet nuget push --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  publish-github-release:
+    needs: [publish-nuget, version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
+      - name: Publish release after NuGet succeeds
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" artifacts/packages/*.nupkg artifacts/packages/*.snupkg artifacts/checksums.sha256 artifacts/sbom.packages.json artifacts/source-commit.txt --title "v$VERSION" --generate-notes
