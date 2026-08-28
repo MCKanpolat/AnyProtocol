@@ -15,7 +15,7 @@ jobs:
     env:
       ANYPROTOCOL_REQUIRE_BROKER_TESTS: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: dotnet restore AnyProtocol.slnx --locked-mode
       - run: dotnet build AnyProtocol.slnx -c Release --no-restore
       - run: dotnet test AnyProtocol.slnx -c Release --no-build --logger "trx;LogFileName=tests.trx"
@@ -34,13 +34,13 @@ jobs:
               "/p:CoverletOutput=$coverletOutput"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results
           path: '**/TestResults/*.trx'
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: dotnet restore AnyProtocol.slnx --locked-mode
       - run: dotnet pack src/AnyProtocol/AnyProtocol.csproj -c Release --no-restore
       - run: dotnet list AnyProtocol.slnx package --vulnerable --include-transitive --no-restore
