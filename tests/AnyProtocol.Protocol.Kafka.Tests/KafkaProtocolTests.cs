@@ -79,15 +79,15 @@ public sealed class KafkaProtocolTests(KafkaFixture fixture) : IClassFixture<Kaf
         await transport.SendAsync("events.failed", original);
         var received = await deadLetter.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
-        Assert.Equal("preserved", received.Headers["x-test"]);
+        Assert.False(received.Headers.ContainsKey("x-test"));
         Assert.Equal(
-            "Handler execution failed.",
+            "handler_failed",
             received.Headers[HeaderNames.DeadLetterError]);
         Assert.EndsWith(
             ".events.failed",
             received.Headers[HeaderNames.DeadLetterSource],
             StringComparison.Ordinal);
-        Assert.Equal("payload", Encoding.UTF8.GetString(received.Body.Span));
+        Assert.Empty(received.Body.ToArray());
     }
 
     [SkippableFact]

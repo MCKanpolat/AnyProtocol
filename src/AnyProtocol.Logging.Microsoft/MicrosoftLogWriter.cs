@@ -9,14 +9,23 @@ namespace AnyProtocol.Logging.Microsoft;
 public class MicrosoftLogWriter : ILogWriter
 {
     private readonly ILogger _logger;
+    private readonly ExceptionLoggingMode _exceptionLoggingMode;
+    private readonly IExceptionSanitizer _exceptionSanitizer;
 
     /// <summary>
     /// Initializes a new instance of the MicrosoftLogWriter class.
     /// </summary>
     /// <param name="logger">The logger.</param>
-    public MicrosoftLogWriter(ILogger logger)
+    /// <param name="exceptionLoggingMode">The exception detail policy for this sink.</param>
+    /// <param name="exceptionSanitizer">The optional exception metadata sanitizer.</param>
+    public MicrosoftLogWriter(
+        ILogger logger,
+        ExceptionLoggingMode exceptionLoggingMode = ExceptionLoggingMode.TypeOnly,
+        IExceptionSanitizer? exceptionSanitizer = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _exceptionLoggingMode = exceptionLoggingMode;
+        _exceptionSanitizer = exceptionSanitizer ?? new DefaultExceptionSanitizer();
     }
 
     /// <summary>
@@ -35,7 +44,7 @@ public class MicrosoftLogWriter : ILogWriter
             return;
         }
 
-        _logger.Log(logLevel, exception, message, args);
+        LogCore(logLevel, default, message, exception, args);
     }
 
     /// <summary>
@@ -66,7 +75,31 @@ public class MicrosoftLogWriter : ILogWriter
         var logLevel = LogLevelMapper.Map(severity);
         if (_logger.IsEnabled(logLevel))
         {
-            _logger.Log(logLevel, new EventId(eventId), exception, message, args);
+            LogCore(logLevel, new EventId(eventId), message, exception, args);
         }
+    }
+
+    private void LogCore(
+        LogLevel logLevel,
+        EventId eventId,
+        string? message,
+        Exception? exception,
+        object?[] args)
+    {
+        if (exception is null || _exceptionLoggingMode == ExceptionLoggingMode.FullDiagnostic)
+        {
+            _logger.Log(logLevel, eventId, exception, message, args);
+            return;
+        }
+
+        var sanitized = _exceptionSanitizer.Sanitize(exception, _exceptionLoggingMode);
+        var suffix = sanitized.Summary is null
+            ? " Exception type: {0}."
+            : " {0} Exception type: {1}.";
+        var safeMessage = (message ?? string.Empty) + suffix;
+        var safeArgs = sanitized.Summary is null
+            ? args.Concat([sanitized.Type]).ToArray()
+            : args.Concat([sanitized.Summary, sanitized.Type]).ToArray();
+        _logger.Log(logLevel, eventId, null, safeMessage, safeArgs);
     }
 }

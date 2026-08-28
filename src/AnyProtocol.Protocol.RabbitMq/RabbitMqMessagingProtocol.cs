@@ -92,17 +92,12 @@ public sealed class RabbitMqMessagingProtocol :
                 exception);
         }
 
-        var headers = new MessageHeaders(envelope.Headers)
-        {
-            [HeaderNames.DeadLetterSource] = channel,
-            [HeaderNames.DeadLetterErrorType] = exception.GetType().FullName ?? exception.GetType().Name,
-            [HeaderNames.DeadLetterError] = "Handler execution failed."
-        };
+        var deadLetter = new DeadLetterEnvelopeFactory().Create(channel, envelope, exception);
         var attempt = GetDeliveryAttempt(envelope);
         await PublishConfirmedAsync(
             _topology.DeadLetterExchange,
             _topology.RoutingKey(channel),
-            new TransportEnvelope(headers, envelope.Body),
+            new TransportEnvelope(new MessageHeaders(deadLetter.Headers), deadLetter.Body),
             attempt,
             declareDeadLetterTopology: true,
             cancellationToken);

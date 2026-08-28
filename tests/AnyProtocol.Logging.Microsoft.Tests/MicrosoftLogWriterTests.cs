@@ -35,11 +35,11 @@ public sealed class MicrosoftLogWriterTests
     }
 
     [Fact]
-    public void Log_forwards_formatted_message_and_exception_when_enabled()
+    public void Log_uses_safe_type_only_exception_metadata_by_default()
     {
         var logger = new RecordingLogger();
         var writer = new MicrosoftLogWriter(logger);
-        var exception = new InvalidOperationException("boom");
+        var exception = new InvalidOperationException("canary-secret");
 
         writer.Log(LogSeverity.Warning, "Order {0} failed", exception, 42);
 
@@ -47,8 +47,21 @@ public sealed class MicrosoftLogWriterTests
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal(0, entry.EventId.Id);
         Assert.Null(entry.EventId.Name);
-        Assert.Same(exception, entry.Exception);
-        Assert.Equal("Order 42 failed", entry.Message);
+        Assert.Null(entry.Exception);
+        Assert.Equal("Order 42 failed Exception type: InvalidOperationException.", entry.Message);
+        Assert.DoesNotContain("canary-secret", entry.Message);
+    }
+
+    [Fact]
+    public void Log_forwards_original_exception_only_in_full_diagnostic_mode()
+    {
+        var logger = new RecordingLogger();
+        var writer = new MicrosoftLogWriter(logger, ExceptionLoggingMode.FullDiagnostic);
+        var exception = new InvalidOperationException("diagnostic-only");
+
+        writer.Log(LogSeverity.Warning, "Order failed", exception);
+
+        Assert.Same(exception, Assert.Single(logger.Entries).Exception);
     }
 
     [Fact]

@@ -76,8 +76,8 @@ public sealed class RabbitMqRetryTests(RabbitMqFixture fixture)
 
         Assert.Equal(1, Volatile.Read(ref calls));
         Assert.Equal("orders.permanent", deadLetter.Headers[HeaderNames.DeadLetterSource]);
-        Assert.Equal(typeof(ArgumentException).FullName, deadLetter.Headers[HeaderNames.DeadLetterErrorType]);
-        Assert.Equal("Handler execution failed.", deadLetter.Headers[HeaderNames.DeadLetterError]);
+        Assert.Equal(nameof(ArgumentException), deadLetter.Headers[HeaderNames.DeadLetterErrorType]);
+        Assert.Equal("handler_failed", deadLetter.Headers[HeaderNames.DeadLetterError]);
         Assert.Equal("1", deadLetter.Headers[RabbitMqEnvelopeMapper.DeliveryAttemptHeader]);
     }
 
@@ -139,8 +139,8 @@ public sealed class RabbitMqRetryTests(RabbitMqFixture fixture)
         var deadLetter = await probe.GetAsync();
 
         Assert.Equal(1, Volatile.Read(ref calls));
-        Assert.Equal(typeof(ApplicationException).FullName, deadLetter.Headers[HeaderNames.DeadLetterErrorType]);
-        Assert.Equal("Handler execution failed.", deadLetter.Headers[HeaderNames.DeadLetterError]);
+        Assert.Equal(nameof(ApplicationException), deadLetter.Headers[HeaderNames.DeadLetterErrorType]);
+        Assert.Equal("handler_failed", deadLetter.Headers[HeaderNames.DeadLetterError]);
         Assert.DoesNotContain("secret", deadLetter.Headers.Values);
     }
 

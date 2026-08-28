@@ -73,6 +73,8 @@ public static class HeaderNames
     /// The dead letter error value.
     /// </summary>
     public const string DeadLetterError = "cl-dead-letter-error";
+    /// <summary>The keyed fingerprint of a body retained without its plaintext.</summary>
+    public const string DeadLetterBodyFingerprint = "cl-dead-letter-body-fingerprint";
     /// <summary>
     /// The deadline value.
     /// </summary>

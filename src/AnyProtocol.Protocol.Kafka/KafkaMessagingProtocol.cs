@@ -246,16 +246,11 @@ public sealed class KafkaMessagingProtocol :
         }
 
         var deadLetterTopic = sourceTopic + _options.DeadLetterSuffix;
-        var headers = new MessageHeaders(envelope.Headers)
-        {
-            [HeaderNames.DeadLetterSource] = sourceTopic,
-            [HeaderNames.DeadLetterErrorType] = exception.GetType().FullName ?? exception.GetType().Name,
-            [HeaderNames.DeadLetterError] = "Handler execution failed."
-        };
+        var deadLetter = new DeadLetterEnvelopeFactory().Create(sourceTopic, envelope, exception);
         await EnsureTopicAsync(deadLetterTopic, false, cancellationToken).ConfigureAwait(false);
         await ProduceAsync(
                 deadLetterTopic,
-                new TransportEnvelope(headers, envelope.Body),
+                new TransportEnvelope(new MessageHeaders(deadLetter.Headers), deadLetter.Body),
                 cancellationToken)
             .ConfigureAwait(false);
     }
