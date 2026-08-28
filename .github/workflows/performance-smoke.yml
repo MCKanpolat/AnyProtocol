@@ -12,8 +12,8 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.300
       - run: dotnet restore AnyProtocol.slnx
@@ -21,7 +21,7 @@ jobs:
       - run: dotnet test tests/AnyProtocol.Performance.Tests/AnyProtocol.Performance.Tests.csproj -c Release --no-build
       - run: dotnet run --project benchmarks/AnyProtocol.Benchmarks -c Release --no-build -- --job short --filter "*CodecBenchmarks*" --artifacts artifacts/benchmarks-smoke
       - run: dotnet run --project performance/AnyProtocol.LoadTests -c Release --no-build -- --matrix smoke --operations 1000 --warmup 100 --json artifacts/performance/smoke.json --markdown artifacts/performance/smoke.md
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: performance-smoke
