@@ -140,4 +140,6 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          gh release create "v$VERSION" artifacts/packages/*.nupkg artifacts/packages/*.snupkg artifacts/checksums.sha256 artifacts/sbom.packages.json artifacts/source-commit.txt --title "v$VERSION" --generate-notes
+          shopt -s nullglob
+          release_assets=(artifacts/packages/*.nupkg artifacts/packages/*.snupkg artifacts/checksums.sha256 artifacts/sbom.packages.json artifacts/source-commit.txt)
+          gh release create "v$VERSION" "${release_assets[@]}" --title "v$VERSION" --generate-notes
