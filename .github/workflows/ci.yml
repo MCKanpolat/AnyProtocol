@@ -43,6 +43,9 @@ jobs:
       ANYPROTOCOL_REQUIRE_BROKER_TESTS: 'true'
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
       - run: dotnet restore AnyProtocol.slnx --locked-mode
       - run: dotnet build AnyProtocol.slnx -c Release --no-restore
       - run: dotnet test AnyProtocol.slnx -c Release --no-build --logger "trx;LogFileName=tests.trx"
@@ -81,6 +84,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
       - run: dotnet restore AnyProtocol.slnx --locked-mode
       - run: dotnet pack src/AnyProtocol/AnyProtocol.csproj -c Release --no-restore
       - run: dotnet list AnyProtocol.slnx package --vulnerable --include-transitive --no-restore

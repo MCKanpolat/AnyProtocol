@@ -63,6 +63,9 @@ jobs:
       ANYPROTOCOL_REQUIRE_BROKER_TESTS: 'true'
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
       - run: dotnet restore AnyProtocol.slnx --locked-mode
       - run: dotnet build AnyProtocol.slnx -c Release --no-restore
       - run: dotnet test AnyProtocol.slnx -c Release --no-build
@@ -74,6 +77,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
       - run: dotnet restore AnyProtocol.slnx --locked-mode
       - name: Pack and generate release evidence
         shell: bash
