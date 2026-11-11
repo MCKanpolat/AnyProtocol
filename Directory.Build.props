@@ -4,7 +4,7 @@
     <PackageId Condition="'$(PackageId)' == ''">$(AssemblyName)</PackageId>
     <Title Condition="'$(Title)' == ''">$(PackageId)</Title>
     <Description Condition="'$(Description)' == ''">AnyProtocol is a .NET messaging and communication library for building protocol-flexible distributed applications.</Description>
-    <PackageTags>AnyProtocol;dotnet;dotnet10;messaging;message-bus;event-bus;distributed-systems;rpc;grpc;rest;kafka;rabbitmq;zeromq;mcp;serialization;dependency-injection</PackageTags>
+    <PackageTags>AnyProtocol;dotnet;dotnet10;dotnet11;messaging;message-bus;event-bus;distributed-systems;rpc;grpc;rest;kafka;rabbitmq;zeromq;mcp;serialization;dependency-injection</PackageTags>
     <Product>AnyProtocol</Product>
     <Authors>Mehmet Can Kanpolat</Authors>
     <PackageReleaseNotes>See the GitHub release notes for the changes included in this version.</PackageReleaseNotes>

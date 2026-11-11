@@ -40,7 +40,7 @@ The solution contains 29 source projects.
 - REST, gRPC, Kafka, RabbitMQ, ZeroMQ, InMemory, and MCP remain independently deployable adapters.
 - Generator and code-fix projects remain `netstandard2.0` compiler extensions.
 
-Core, abstraction, serializer, encoder, and InMemory packages target `net8.0` and `net10.0`.
+Core, abstraction, serializer, encoder, and InMemory packages target `net8.0`, `net10.0`, and `net11.0`.
 Adapters that depend on .NET 10 hosting or third-party runtime surfaces continue to target
 `net10.0` until their compatibility matrix is verified.
 

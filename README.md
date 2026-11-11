@@ -36,7 +36,7 @@ See [transport semantics](https://mckanpolat.github.io/AnyProtocol/TRANSPORT_SEM
 
 ## Prerequisites
 
-- .NET SDK `10.0.300` or a compatible newer feature band
+- .NET SDK `11.0.100` or a compatible newer feature band
 - A Kafka broker for Kafka transport
 - A RabbitMQ broker for RabbitMQ transport
 - Reachable TCP endpoints for ZeroMQ

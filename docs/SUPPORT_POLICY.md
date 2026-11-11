@@ -1,7 +1,7 @@
 # Support policy
 
 AnyProtocol core, abstraction, serializer, encoder, and InMemory runtime packages target
-`net8.0` and `net10.0`.
+`net8.0`, `net10.0`, and `net11.0`.
 
 - Minimum core runtime: .NET 8.
 - Preferred baseline: .NET 10 LTS.

@@ -36,7 +36,7 @@ public sealed class KafkaEnvelopeMapperTests
         {
             Message = new Message<string, byte[]>
             {
-                Value = null,
+                Value = null!,
                 Headers = new Headers()
             }
         };
